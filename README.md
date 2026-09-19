@@ -140,6 +140,7 @@ gws-manager/
 ├── docs/              # Design notes
 ├── Dockerfile
 ├── docker-compose.yml
+├── THIRD_PARTY_NOTICES.md  # Upstream licenses for bundled components
 └── DEVELOPMENT.md     # Development guide
 ```
 
@@ -238,25 +239,30 @@ Two things bite everyone writing hooks for this app:
 
 ## License
 
-**PolyForm Noncommercial License 1.0.0** — see [LICENSE](LICENSE).
+**PolyForm Internal Use License 1.0.0** — see [LICENSE](LICENSE). That is the
+standard PolyForm text plus one added section permitting personal use.
 
-You may use, modify and self-host this software for **noncommercial** purposes:
-personal projects, study, evaluation, and use by charitable organisations,
-educational institutions, public research bodies, public safety or health
-organisations, environmental protection organisations, and government
-institutions.
+**Free for internal use, at any company size.** You may use, modify and
+self-host this software to administer your own Google Workspace domain, as part
+of your own organisation's internal operations — commercially or not. Small
+business, enterprise, nonprofit, government, home lab: all permitted, at no
+cost and with no registration.
 
-**Commercial use requires a separate license.** You may not use this software
-to run a business, provide it as a paid service, or otherwise pursue commercial
-advantage without written permission from the copyright holder. For commercial
-licensing, contact the maintainer.
+**You may not distribute it.** Without written permission from the copyright
+holder you may not:
+
+- redistribute the software, or a modified version of it, to anyone else
+- offer it to third parties as a hosted or managed service
+- bundle or embed it in a product or service that you sell
+
+**Commercial licensing** is available for those cases — contact the maintainer.
 
 ### This is source-available, not "open source"
 
 To be precise about the term: the [Open Source Definition](https://opensource.org/osd)
 forbids restricting a license by field of endeavour, so **no license that
-prohibits commercial use can be called open source**. This project is
-*source-available* / *noncommercial*. Some practical consequences:
+restricts what you may use it for can be called open source**. This project is
+*source-available* / *internal-use*. Some practical consequences:
 
 - GitHub will not show an OSI-approved license badge for it.
 - Linux distributions and some package repositories cannot redistribute it.
@@ -266,9 +272,15 @@ prohibits commercial use can be called open source**. This project is
 That is a deliberate trade-off: the source is public so it can be audited,
 self-hosted and improved, while commercial rights stay with the copyright
 holder. If you would rather be OSI-approved, the usual alternatives are
-AGPL-3.0 (copyleft; still permits commercial use, but forces anyone offering it
-as a service to publish their changes) or BUSL-1.1 (time-delayed: converts to
-an open license after a set period).
+AGPL-3.0 (copyleft; permits all commercial use, but forces anyone offering it as
+a service to publish their changes) or BUSL-1.1 (time-delayed: converts to an
+open license after a set period).
+
+### Third-party components
+
+This software redistributes the PocketBase binary (MIT) and runs on an Alpine
+Linux base image. Full notices and license texts: see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2026 ThinkCloud.
 

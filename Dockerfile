@@ -40,6 +40,13 @@ COPY hooks/    /app/hooks/
 COPY lib/      /app/lib/
 COPY backend/  /app/backend/
 
+# Third-party license notices. These must travel with the distributed image,
+# not just live in the repo — clients receive the image, not the source tree.
+# The copy under frontend/ makes it reachable by URL, since frontend/ is served
+# as PocketBase's --publicDir. Remove it there if you would rather not serve it.
+COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
+COPY THIRD_PARTY_NOTICES.md /app/frontend/THIRD_PARTY_NOTICES.txt
+
 # Entrypoint (starts signer + PocketBase)
 COPY scripts/docker-start.sh /app/start.sh
 RUN chmod +x /app/start.sh

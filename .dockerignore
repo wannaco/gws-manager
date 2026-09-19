@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Node
+node_modules
+package-lock.json
+
+# Build artifacts
+dist/
+
+# Test
+test-results/
+test-*.mjs
+
+# Docker (don't recursive copy)
+Dockerfile
+docker-compose.yml
+.cptr/
+
+# Local data (mount as volume)
+data/
+
+# Local environment file (contains secrets — never bake into an image)
+.env
+
+# Compiled binaries (built inside the image)
+sidecar/signer
+sidecar/signer.exe

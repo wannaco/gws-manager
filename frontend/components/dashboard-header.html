@@ -1,0 +1,12 @@
+<!-- Top bar -->
+<header class="navbar bg-base-100 border-b border-base-300 min-h-16 px-6 gap-4">
+  <button class="btn btn-square btn-ghost lg:hidden" onclick="openSidebar()">☰</button>
+  <div class="flex-1"><span id="nav-domain" class="font-semibold text-sm"></span></div>
+  <div class="flex items-center gap-3">
+    <button class="btn btn-ghost btn-sm btn-square" onclick="toggleTheme()" title="Toggle theme">
+      <span id="theme-icon">🌙</span>
+    </button>
+    <span id="nav-user" class="text-sm hidden sm:inline opacity-70"></span>
+    <button class="btn btn-error btn-sm btn-outline" onclick="doLogout()">Logout</button>
+  </div>
+</header>

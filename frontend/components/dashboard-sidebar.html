@@ -1,0 +1,19 @@
+<!-- SIDEBAR -->
+<aside id="app-sidebar" class="w-72 bg-base-100 border-r border-base-300 min-h-screen flex flex-col shrink-0">
+  <div class="px-6 pt-6 pb-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-content font-bold text-lg">G</div>
+      <div>
+        <h2 class="font-bold text-lg">GWS Admin</h2>
+        <p class="text-xs text-base-content/50" id="sidebar-domain"></p>
+      </div>
+    </div>
+  </div>
+  <nav class="px-4 py-2 flex-1">
+    <ul class="menu bg-base-200 rounded-box w-full">
+      <li><a id="sidebar-gws-users" class="sidebar-item" onclick="navTo('gws-users')">📧 GWS Users</a></li>
+      <li><a id="sidebar-sig-bulk" class="sidebar-item" onclick="navTo('sig-bulk')">✍️ Bulk Signatures</a></li>
+      <li><a id="sidebar-settings" class="sidebar-item" onclick="navTo('settings')">⚙️ Settings</a></li>
+    </ul>
+  </nav>
+</aside>

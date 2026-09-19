@@ -1,0 +1,37 @@
+<div id="page-setup" class="hidden min-h-screen flex items-center justify-center p-4">
+  <div class="card bg-base-100 shadow-xl w-full max-w-lg fade-in">
+    <div class="card-body">
+      <div class="flex items-center justify-between">
+        <h2 class="card-title text-2xl">Setup Your Domain</h2>
+        <button class="btn btn-ghost btn-sm" onclick="doLogout()">← Logout</button>
+      </div>
+      <p class="text-sm text-base-content/60 mb-2">Connect your Google Workspace domain.</p>
+      <div class="alert alert-info text-sm mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <span>Don't have a GCP project yet? <a href="https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/wannaco/gws-manager.git&cloudshell_tutorial=tutorial.md&cloudshell_workspace=." target="_blank" rel="noopener" class="link link-primary font-semibold">Open setup tutorial in Cloud Shell ↗</a></span>
+      </div>
+      <div id="setup-error" class="alert alert-error text-sm hidden"></div>
+      <div id="setup-step-1">
+        <div class="form-control">
+          <label class="label"><span class="label-text">Domain</span></label>
+          <input id="setup-domain" type="text" class="input input-bordered" placeholder="example.com">
+        </div>
+        <div class="form-control mt-3">
+          <label class="label"><span class="label-text">Admin Email</span></label>
+          <input id="setup-admin-email" type="email" class="input input-bordered" placeholder="admin@example.com">
+        </div>
+        <button class="btn btn-primary w-full mt-6" onclick="setupNext()">Next</button>
+      </div>
+      <div id="setup-step-2" class="hidden">
+        <div class="form-control">
+          <label class="label"><span class="label-text">Service Account JSON Key</span></label>
+          <textarea id="setup-sa-key" class="textarea textarea-bordered h-40 font-mono text-xs" placeholder="Paste your GCP service account JSON key..."></textarea>
+        </div>
+        <div class="flex gap-2 mt-6">
+          <button class="btn btn-outline flex-1" onclick="setupBack()">Back</button>
+          <button id="btn-setup-finish" class="btn btn-primary flex-1" onclick="doSetup()">Connect Domain</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

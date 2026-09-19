@@ -1,0 +1,16 @@
+# ── GWS Admin — Caddy reverse proxy ──
+#
+# Optional: this profile gives you HTTPS without running your own proxy.
+#
+#   1. Replace the hostname below with your own (it must already resolve to
+#      this server, and ports 80/443 must be reachable — Caddy needs them to
+#      obtain a Let's Encrypt certificate).
+#   2. docker compose --profile proxy up -d
+#
+# Using your own reverse proxy (nginx, Traefik, a load balancer, ...) instead?
+# Skip this profile and proxy to the `gws` service on port 8090.
+
+gws.example.com {
+	encode zstd gzip
+	reverse_proxy gws:8090
+}

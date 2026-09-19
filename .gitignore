@@ -1,0 +1,30 @@
+.cache/
+.config/
+.cptr/
+.npm/
+.pyenv/
+.ssh/
+pb_data/
+pocketbase.log
+pocketbase
+pocketbase_*
+*.zip
+# scripts/ is tracked — needed for Docker/build. Only build output is ignored:
+scripts/dist/
+signer.go
+__pycache__/
+*.db
+*.db-*
+*.bak
+*.tiptap-backup
+node_modules/
+*.db.corrupted
+
+# Never track compiled binaries or DB backups — these are build/release artifacts
+sidecar/signer
+sidecar/signer.exe
+data/*.bak*
+test-results/
+
+# Local environment (contains secrets)
+.env

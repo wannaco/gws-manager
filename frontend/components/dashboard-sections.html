@@ -1,0 +1,113 @@
+<!-- Main content area -->
+<main class="p-4 lg:p-6">
+  <!-- GWS Users section -->
+  <div id="section-gws-users" class="fade-in">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold">GWS Users</h2>
+      <div class="flex gap-2 items-center">
+        <input id="user-search" type="text" class="input input-bordered input-sm w-48" placeholder="Search..." onkeyup="if(event.key==='Enter')loadUsers()">
+        <button class="btn btn-primary btn-sm" onclick="loadUsers()">Load Users</button>
+        <button class="btn btn-outline btn-sm" onclick="syncUsers()">Sync Users</button>
+        <span id="users-sync-status" class="text-xs opacity-60"></span>
+      </div>
+    </div>
+    <div id="users-error" class="alert alert-error text-sm hidden mb-3"></div>
+    <div class="overflow-x-auto bg-base-100 rounded-box shadow">
+      <table class="table table-sm table-zebra">
+        <thead><tr><th>Name</th><th>Email</th><th>Org Unit</th><th>Admin</th><th class="hidden md:table-cell">Phone</th></tr></thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="5" class="text-center py-10 text-base-content/40">Loading users...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- User detail panel (hidden until user clicked) -->
+  <div id="section-user-detail" class="hidden fade-in">
+    <div class="flex items-center gap-3 mb-4">
+      <button class="btn btn-ghost btn-sm" onclick="closeUserDetail()">← Back to Users</button>
+      <div>
+        <h2 class="text-lg font-bold" id="detail-name"></h2>
+        <p class="text-sm opacity-60 font-mono" id="detail-email"></p>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs tabs-boxed tabs-sm bg-base-100 mb-4 overflow-x-auto flex-nowrap whitespace-nowrap">
+      <a class="tab tab-active" data-utab="delegation" onclick="switchUserTab('delegation')">Delegation</a>
+      <a class="tab" data-utab="forwarding" onclick="switchUserTab('forwarding')">Forwarding</a>
+      <a class="tab" data-utab="filters" onclick="switchUserTab('filters')">Filters</a>
+      <a class="tab" data-utab="vacation" onclick="switchUserTab('vacation')">Vacation</a>
+      <a class="tab" data-utab="sendas" onclick="switchUserTab('sendas')">Send As</a>
+      <a class="tab" data-utab="signatures" onclick="switchUserTab('signatures')">Signatures</a>
+      <a class="tab" data-utab="calendar" onclick="switchUserTab('calendar')">Calendar</a>
+    </div>
+
+    <div id="utab-content" class="bg-base-100 rounded-box shadow p-4 lg:p-6">
+      <!-- Populated dynamically -->
+    </div>
+  </div>
+
+  <!-- Bulk Signature section -->
+  <div id="section-sig-bulk" class="hidden fade-in">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold">Signature Bulk Apply</h2>
+      <button class="btn btn-primary btn-sm" onclick="openRecipientModal()">Select Recipients</button>
+    </div>
+    <div id="bulk-toolbar" class="border border-base-300 rounded-lg overflow-hidden mb-4 min-h-[300px]"></div>
+    <div class="flex gap-2 flex-wrap mb-4">
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{name}}')">{{name}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{email}}')">{{email}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{title}}')">{{title}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{department}}')">{{department}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{phone}}')">{{phone}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{photoUrl}}')">{{photoUrl}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{firstName}}')">{{firstName}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{lastName}}')">{{lastName}}</button>
+      <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{company}}')">{{company}}</button>
+    </div>
+    <button id="btn-bulk-apply" class="btn btn-primary w-full" onclick="executeBulkApply()" disabled>Bulk Apply</button>
+  </div>
+
+  <!-- Settings section -->
+  <div id="section-settings" class="hidden fade-in">
+    <h2 class="text-xl font-bold mb-4">Settings</h2>
+    <div class="alert alert-info text-sm mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <span>Need a GCP project? <a href="https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/wannaco/gws-manager.git&cloudshell_tutorial=tutorial.md&cloudshell_workspace=." target="_blank" rel="noopener" class="link link-primary font-semibold">Open setup tutorial in Cloud Shell ↗</a></span>
+    </div>
+    <div class="card bg-base-100 shadow">
+      <div class="card-body">
+        <div class="form-control">
+          <label class="label"><span class="label-text">Domain</span></label>
+          <input id="settings-domain" type="text" class="input input-bordered" disabled>
+        </div>
+        <div class="form-control mt-3">
+          <label class="label"><span class="label-text">Admin Email</span></label>
+          <input id="settings-admin-email" type="email" class="input input-bordered" disabled>
+        </div>
+        <div class="form-control mt-3">
+          <label class="label"><span class="label-text">Service Account Key</span></label>
+          <textarea id="settings-sa-key" class="textarea textarea-bordered h-32 font-mono text-xs" placeholder="Paste updated key..." disabled></textarea>
+        </div>
+        <div class="card-actions mt-4">
+          <button id="btn-edit-settings" class="btn btn-outline btn-sm" onclick="toggleSettingsEdit()">Edit</button>
+          <button id="btn-save-settings" class="btn btn-primary btn-sm hidden" onclick="saveSettings()">Save &amp; Test</button>
+        </div>
+        <div id="settings-result"></div>
+      </div>
+    </div>
+    <div class="card bg-base-100 shadow mt-4">
+      <div class="card-body">
+        <h3 class="font-semibold">Webhook</h3>
+        <div class="form-control">
+          <input id="webhook-url" type="url" class="input input-bordered" placeholder="https://hooks.slack.com/...">
+        </div>
+        <div class="card-actions mt-2">
+          <button class="btn btn-primary btn-sm" onclick="saveWebhook()">Save</button>
+          <button class="btn btn-outline btn-sm" onclick="testWebhook()">Test</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>

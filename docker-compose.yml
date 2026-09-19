@@ -1,0 +1,57 @@
+# ── GWS Admin — Docker Compose ──
+# Self-hosted: one instance = one Google Workspace domain.
+#
+#   1. cp .env.example .env   and set ENCRYPTION_KEY
+#   2. docker compose up -d
+#   3. open http://localhost:8090
+#
+# With the bundled HTTPS proxy:  docker compose --profile proxy up -d
+#
+# By default this builds the image from the current checkout, so a fresh clone
+# needs nothing but Docker (PocketBase and the signer are fetched/compiled
+# inside the build). To run a prebuilt image instead, set GWS_IMAGE to a
+# registry reference and log in first — see the README.
+
+services:
+  gws:
+    # Local build tag by default. Set GWS_IMAGE to use a published image,
+    # e.g. GWS_IMAGE=registry.example.com/gws-admin:latest
+    image: ${GWS_IMAGE:-gws-admin:local}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/app/data
+    environment:
+      # Encrypts the Google service-account key at rest.
+      # REQUIRED for production. Generate with: openssl rand -hex 32
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      # Optional: restrict API access to a single origin.
+      - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+    networks:
+      - gws-net
+
+  # Optional HTTPS reverse proxy (enable with: docker compose --profile proxy up -d)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - gws-net
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  gws-net:
+    driver: bridge

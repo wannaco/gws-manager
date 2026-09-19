@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>GWS Admin</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/htmx.org@2.0.2"></script>
+<link href="https://unpkg.com/grapesjs@0.21.13/dist/css/grapes.min.css" rel="stylesheet">
+<script src="https://unpkg.com/grapesjs@0.21.13/dist/grapes.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<link rel="stylesheet" href="/styles/index.css?v=17">
+</head>
+<body>
+
+<!-- Components -->
+<div hx-get="/components/login.html?v=17" hx-trigger="load once" hx-swap="outerHTML"></div>
+<div hx-get="/components/setup.html?v=17" hx-trigger="load once" hx-swap="outerHTML"></div>
+
+<!-- ===== DASHBOARD ===== -->
+<div id="page-dashboard" class="hidden min-h-screen flex flex-col">
+  <!-- Mobile drawer overlay (hidden on desktop) -->
+  <input id="dashboard-drawer" type="checkbox" class="hidden">
+  <div id="sidebar-overlay" class="fixed inset-0 bg-black/40 z-40 hidden" onclick="closeSidebar()"></div>
+
+  <div class="flex flex-1">
+    <!-- Sidebar -->
+    <aside id="app-sidebar" class="w-72 bg-base-100 border-r border-base-300 min-h-screen flex flex-col shrink-0">
+      <div class="px-6 pt-6 pb-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-content font-bold text-lg">G</div>
+          <div>
+            <h2 class="font-bold text-lg">GWS Admin</h2>
+            <p class="text-xs text-base-content/50" id="sidebar-domain"></p>
+          </div>
+        </div>
+      </div>
+      <nav class="px-4 py-2 flex-1">
+        <ul class="menu bg-base-200 rounded-box w-full">
+          <li><a id="sidebar-gws-users" class="sidebar-item" onclick="navTo('gws-users')">📧 GWS Users</a></li>
+          <li><a id="sidebar-sig-bulk" class="sidebar-item" onclick="navTo('sig-bulk')">✍️ Bulk Signatures</a></li>
+          <li><a id="sidebar-settings" class="sidebar-item" onclick="navTo('settings')">⚙️ Settings</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <div class="flex flex-col flex-1 min-w-0">
+      <!-- Top bar -->
+      <header class="navbar bg-base-100 border-b border-base-300 min-h-16 px-6 gap-4">
+        <button id="mobile-menu-btn" class="btn btn-square btn-ghost" onclick="openSidebar()">☰</button>
+        <div class="flex-1"><span id="nav-domain" class="font-semibold text-sm"></span></div>
+        <div class="flex items-center gap-3">
+          <button class="btn btn-ghost btn-sm btn-square" onclick="toggleTheme()" title="Toggle theme">
+            <span id="theme-icon">🌙</span>
+          </button>
+          <span id="nav-user" class="text-sm hidden sm:inline opacity-70"></span>
+          <button class="btn btn-error btn-sm btn-outline" onclick="doLogout()">Logout</button>
+        </div>
+      </header>
+      <div hx-get="/components/dashboard-sections.html?v=17" hx-trigger="load once" hx-swap="outerHTML"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Load modals as component -->
+<div hx-get="/components/modals.html?v=17" hx-trigger="load once" hx-swap="outerHTML"></div>
+
+<!-- JavaScript Modules -->
+<script src="/js/api.js?v=17"></script>
+<script src="/js/auth.js?v=17"></script>
+<script src="/js/dashboard.js?v=17"></script>
+<script src="/js/users.js?v=17"></script>
+<script src="/js/user-tabs.js?v=17"></script>
+<script src="/js/signature.js?v=17"></script>
+<script src="/js/bulk.js?v=17"></script>
+<script src="/js/settings.js?v=17"></script>
+<script src="/js/modals.js?v=17"></script>
+<script src="/js/main.js?v=17"></script>
+<script>
+  // Force manual initialization if HTMX missed the trigger
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM ready, checking for HTMX...');
+    if (typeof htmx !== 'undefined') {
+      htmx.process(document.body);
+    } else {
+      console.error('HTMX is NOT loaded!');
+    }
+  });
+</script>
+</body>
+</html>

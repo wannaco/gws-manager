@@ -129,15 +129,18 @@ used to impersonate Google Workspace users via a service account. It binds to
 ## Files
 
 ```
-gws-admin/
+gws-manager/
 ├── frontend/          # HTML, JS, CSS served as PocketBase public dir
-├── hooks/             # PocketBase JS hooks (all API routes)
+├── hooks/             # PocketBase JS hooks (all API routes + cron)
 ├── lib/               # Shared helpers (auth, Google API, encryption)
 ├── backend/           # PocketBase migration files
 ├── data/              # SQLite database (auto-created; mount as a volume)
 ├── sidecar/           # Go signer source for RS256 JWT (Google SA keys)
 ├── scripts/           # install, start, manage, build helpers
-└── SKILL.md           # Development guide
+├── docs/              # Design notes
+├── Dockerfile
+├── docker-compose.yml
+└── DEVELOPMENT.md     # Development guide
 ```
 
 ## Operations
@@ -194,7 +197,7 @@ docker push my-registry/gws-admin:dev
 
 ## Development
 
-See [SKILL.md](SKILL.md) for the full development guide.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the full development guide.
 
 ```bash
 # Run PocketBase in dev mode + the signer

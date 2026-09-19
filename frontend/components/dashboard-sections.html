@@ -48,12 +48,24 @@
     </div>
   </div>
 
+  <!-- Bulk Signature section (audience builder + job progress) -->
   <!-- Bulk Signature section -->
   <div id="section-sig-bulk" class="hidden fade-in">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <h2 class="text-xl font-bold">Signature Bulk Apply</h2>
-      <button class="btn btn-primary btn-sm" onclick="openRecipientModal()">Select Recipients</button>
+      <button class="btn btn-outline btn-sm" onclick="openAudiencePanel()">🎯 Choose recipients</button>
     </div>
+
+    <!-- ── Audience summary (filled by audience.js) ───────────────────── -->
+    <div id="audience-summary" class="alert mb-4 hidden">
+      <div class="flex-1">
+        <div class="font-semibold text-sm" id="audience-count-line">No recipients selected</div>
+        <div class="text-xs opacity-70" id="audience-desc-line"></div>
+      </div>
+      <button class="btn btn-xs btn-ghost" onclick="openAudiencePanel()">Edit</button>
+      <button class="btn btn-xs btn-ghost" onclick="clearAudience()">Clear</button>
+    </div>
+
     <div id="bulk-toolbar" class="border border-base-300 rounded-lg overflow-hidden mb-4 min-h-[300px]"></div>
     <div class="flex gap-2 flex-wrap mb-4">
       <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{name}}')">{{name}}</button>
@@ -66,7 +78,96 @@
       <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{lastName}}')">{{lastName}}</button>
       <button class="btn btn-outline btn-xs" onclick="insertPlaceholder('{{company}}')">{{company}}</button>
     </div>
+
+    <!-- ── Job progress (hidden until a job runs) ─────────────────────── -->
+    <div id="bulk-progress" class="card bg-base-100 shadow mb-4 hidden">
+      <div class="card-body py-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold" id="bulk-progress-label">Applying…</span>
+          <span class="text-xs font-mono" id="bulk-progress-pct">0%</span>
+        </div>
+        <progress id="bulk-progress-bar" class="progress progress-primary w-full" value="0" max="100"></progress>
+        <div class="text-xs opacity-70 mt-1" id="bulk-progress-detail"></div>
+        <div id="bulk-failures" class="mt-3 hidden">
+          <div class="text-xs font-semibold mb-1" id="bulk-failures-title"></div>
+          <div class="max-h-40 overflow-y-auto border border-base-300 rounded p-2 text-xs font-mono" id="bulk-failures-list"></div>
+          <button class="btn btn-xs btn-warning mt-2" onclick="retryFailedBulk()">Retry failed only</button>
+        </div>
+      </div>
+    </div>
+
     <button id="btn-bulk-apply" class="btn btn-primary w-full" onclick="executeBulkApply()" disabled>Bulk Apply</button>
+  </div>
+
+  <!-- ── Audience builder overlay ──────────────────────────────────────── -->
+  <div id="audience-overlay" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-base-100 rounded-box shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto fade-in">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-1">
+          <h3 class="font-bold text-lg">Choose recipients</h3>
+          <button class="btn btn-sm btn-ghost" onclick="closeAudiencePanel()">✕</button>
+        </div>
+        <p class="text-xs opacity-60 mb-5">Combine any of the filters below. They are added together, and the total is shown live.</p>
+
+        <!-- Org units -->
+        <div class="mb-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-semibold text-sm">Organisational units</span>
+            <label class="label cursor-pointer gap-2 py-0">
+              <span class="label-text text-xs">Include sub-OUs</span>
+              <input id="aud-include-sub" type="checkbox" class="checkbox checkbox-xs" onchange="renderOuTree()">
+            </label>
+          </div>
+          <div id="aud-ou-tree" class="border border-base-300 rounded-lg p-2 max-h-52 overflow-y-auto text-sm">
+            <span class="opacity-50 text-xs">Loading org units…</span>
+          </div>
+        </div>
+
+        <!-- Groups -->
+        <div class="mb-5">
+          <div class="font-semibold text-sm mb-2">Google Groups</div>
+          <div class="flex gap-2 mb-2">
+            <input id="aud-group-input" type="text" class="input input-bordered input-sm flex-1" placeholder="group@yourdomain.com">
+            <button class="btn btn-sm btn-outline" onclick="addAudienceGroup()">Add</button>
+          </div>
+          <div id="aud-groups" class="flex flex-wrap gap-1"></div>
+          <div class="alert alert-warning text-xs mt-2 py-2">
+            <span><strong>Nested groups are not supported.</strong> Only direct members of a group are included — members of groups inside it are <em>not</em> added.</span>
+          </div>
+        </div>
+
+        <!-- Free text -->
+        <div class="mb-5">
+          <div class="font-semibold text-sm mb-2">Name or email contains</div>
+          <input id="aud-query" type="text" class="input input-bordered input-sm w-full" placeholder="e.g. marroquin" oninput="scheduleAudienceRefresh()">
+        </div>
+
+        <!-- Exclusions -->
+        <div class="mb-5">
+          <div class="font-semibold text-sm mb-2">Always exclude</div>
+          <div class="flex gap-2 mb-2">
+            <input id="aud-exclude-input" type="text" class="input input-bordered input-sm flex-1" placeholder="person@yourdomain.com">
+            <button class="btn btn-sm btn-outline" onclick="addAudienceExclude()">Add</button>
+          </div>
+          <div id="aud-excludes" class="flex flex-wrap gap-1"></div>
+        </div>
+
+        <!-- Preview -->
+        <div class="mb-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-semibold text-sm" id="aud-preview-title">Preview</span>
+            <button class="btn btn-xs btn-ghost" onclick="toggleAudiencePreview()" id="aud-preview-toggle">Show</button>
+          </div>
+          <div id="aud-preview" class="hidden border border-base-300 rounded-lg p-2 max-h-52 overflow-y-auto text-xs font-mono"></div>
+        </div>
+
+        <div class="modal-action items-center">
+          <span class="mr-auto text-sm font-semibold" id="aud-total">—</span>
+          <button class="btn" onclick="closeAudiencePanel()">Cancel</button>
+          <button class="btn btn-primary" id="aud-apply" onclick="applyAudience()" disabled>Use these recipients</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Settings section -->

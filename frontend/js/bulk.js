@@ -78,50 +78,31 @@ function applyTemplate() {
     if (t && window._bulkEditor) window._bulkEditor.setComponents(cleanHtmlString(t.html));
 }
 
-function openRecipientModal() {
-    const box = $('modal-box');
-    let html = `<h3 class="font-bold text-lg mb-4">Select Recipients</h3>
-        <div class="max-h-64 overflow-y-auto mb-4 border rounded p-2">
-            ${domainUsers.map(u => `
-                <label class="flex items-center gap-2 p-1 hover:bg-base-200 cursor-pointer">
-                    <input type="checkbox" class="checkbox checkbox-sm" value="${esc(u.email)}" onchange="updateRecipientList()">
-                    <span class="text-sm">${esc(u.name || u.email)}</span>
-                </label>
-            `).join('')}
-        </div>
-        <div class="modal-action">
-            <button class="btn" onclick="closeModal()">Close</button>
-            <button class="btn btn-primary" onclick="closeModal()">Confirm</button>
-        </div>`;
-    box.innerHTML = html;
-    $('modal-overlay').classList.remove('hidden');
-    // Pre-check existing
-    if (window._bulkRecipients) {
-        window._bulkRecipients.forEach(email => {
-            const cb = document.querySelector(`#modal-box input[value="${email}"]`);
-            if (cb) cb.checked = true;
-        });
-    }
-}
-
-function updateRecipientList() {
-    const checked = document.querySelectorAll('#modal-box input[type="checkbox"]:checked');
-    window._bulkRecipients = Array.from(checked).map(c => c.value);
-    $('btn-bulk-apply').disabled = window._bulkRecipients.length === 0;
-}
-
 async function executeBulkApply() {
-    if (!window._bulkRecipients || window._bulkRecipients.length === 0) return;
+    const recipients = window._bulkRecipients || [];
+    if (!recipients.length) return;
     const html = window._bulkEditor ? cleanEditorOutput(window._bulkEditor) : '';
+    if (!html.trim()) { notify('Signature is empty', 'error'); return; }
+
     const btn = $('btn-bulk-apply');
-    btn.disabled = true; btn.textContent = 'Applying...';
+    btn.disabled = true; btn.textContent = 'Starting...';
     try {
+        // Persist the signature as a template for the job to read, then queue it.
         const t = await api('POST', '/gws/signature-templates', { action: 'create', name: 'BulkTemp', html: html });
-        await api('POST', '/gws/signature', { action: 'bulkApply', templateId: t.templateId, userEmails: window._bulkRecipients });
-        notify('Bulk applied to ' + window._bulkRecipients.length + ' users', 'success');
-        await api('POST', '/gws/signature-templates', { action: 'delete', templateId: t.templateId });
-    } catch(e) { notify(e.message, 'error'); }
-    btn.disabled = false; btn.textContent = 'Bulk Apply';
+        const r = await api('POST', '/gws/bulk/start', {
+            templateId: t.templateId,
+            emails: recipients,
+            selector: audienceSelector(),
+        });
+        window._bulkJob = r.jobId;
+        showBulkProgress(r.total);
+        notify('Bulk apply started for ' + r.total + ' users', 'success');
+        pollBulkJob(r.jobId);
+    } catch (e) {
+        notify(e.message, 'error');
+        btn.disabled = false;
+    }
+    btn.textContent = 'Bulk Apply';
 }
 
 function saveAsTemplateModal() {

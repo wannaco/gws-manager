@@ -99,11 +99,32 @@ routerAdd("GET", "/gws/list-users", (e) => {
     var u = h.authUser(e); if (!u) return;
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var q = e.request.url.query().get("query") || "";
+    var ouq = e.request.url.query().get("orgUnit") || "";
+    var subOUs = e.request.url.query().get("includeSubOUs") === "1";
+    var limit = parseInt(e.request.url.query().get("limit") || "500");
+    if (isNaN(limit) || limit <= 0) limit = 500;
+    if (limit > 2000) limit = 2000;
+    var offset = parseInt(e.request.url.query().get("offset") || "0");
+    if (isNaN(offset) || offset < 0) offset = 0;
     // Try local cache first
     try {
-        var filter = q ? 'name ~ "' + q.replace(/"/g, '\\"') + '" || primaryEmail ~ "' + q.replace(/"/g, '\\"') + '"' : "";
-        var cached = $app.findRecordsByFilter("domainUsers", filter, "+primaryEmail", 500, 0);
-        if (cached && cached.length > 0) {
+        var esc = function(s) { return String(s).replace(/"/g, '\\"'); };
+        var parts = [];
+        if (q) parts.push('(name ~ "' + esc(q) + '" || primaryEmail ~ "' + esc(q) + '")');
+        if (ouq) {
+            // exact OU, or that OU plus everything beneath it when includeSubOUs=1
+            if (subOUs && ouq !== "/") {
+                parts.push('(orgUnitPath = "' + esc(ouq) + '" || orgUnitPath ~ "' + esc(ouq) + '/")');
+            } else {
+                parts.push('orgUnitPath = "' + esc(ouq) + '"');
+            }
+        }
+        var filter = parts.join(" && ");
+        var total = $app.countRecords("domainUsers", filter);
+        // Empty + unfiltered means the cache was never synced -> fall back below.
+        if (total === 0 && !filter && offset === 0) throw new Error("cache empty");
+        var cached = $app.findRecordsByFilter("domainUsers", filter, "+primaryEmail", limit, offset);
+        if (cached) {
             var users = [];
             for (var i = 0; i < (cached ? cached.length : 0); i++) {
                 var r = cached[i];
@@ -124,7 +145,7 @@ routerAdd("GET", "/gws/list-users", (e) => {
                     photoUrl: r.get("photoUrl") || null
                 });
             }
-            e.json(200, { ok: true, users: users, nextPageToken: null, fromCache: true });
+            e.json(200, { ok: true, users: users, total: total, limit: limit, offset: offset, nextPageToken: null, fromCache: true });
             return;
         }
     } catch (_) { /* fall through to Directory API */ }
@@ -727,11 +748,19 @@ routerAdd("GET", "/gws/group-members", (e) => {
     var sa = h.decryptSAKey(t); if (!sa) { e.json(400, { error: "no_service_account" }); return; }
     var ae = t.get("adminEmail") || "";
     try {
-        var r = h.googleApiCall(sa, ae, ["https://www.googleapis.com/auth/admin.directory.group.readonly"],
-            "https://admin.googleapis.com/admin/directory/v1/groups/" + encodeURIComponent(ge) + "/members?maxResults=500");
-        var ms = (r.members || []).filter(function(m) { return m.type === "USER" && m.email; })
-            .map(function(m) { return { email: m.email, role: m.role || "MEMBER" }; });
-        e.json(200, { ok: true, members: ms });
+        // Page through all members. A page caps at 200 and returns nextPageToken;
+        // ignoring it silently truncates large groups.
+        var ms = [], pt = "", pages = 0;
+        do {
+            var gurl = "https://admin.googleapis.com/admin/directory/v1/groups/" + encodeURIComponent(ge) + "/members?maxResults=200";
+            if (pt) gurl += "&pageToken=" + encodeURIComponent(pt);
+            var r = h.googleApiCall(sa, ae, ["https://www.googleapis.com/auth/admin.directory.group.readonly"], gurl);
+            var batch = (r.members || []).filter(function(m) { return m.type === "USER" && m.email; });
+            for (var bi = 0; bi < batch.length; bi++) ms.push({ email: batch[bi].email, role: batch[bi].role || "MEMBER" });
+            pt = r.nextPageToken || "";
+            pages++;
+        } while (pt && pages < 100);
+        e.json(200, { ok: true, members: ms, count: ms.length, truncated: !!pt, nestedMembersExpanded: false });
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
 });
 
@@ -809,6 +838,274 @@ routerUse((e) => {
 });
 
 // Serve static frontend files including components
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk operations: audience targeting + chunked apply
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Distinct org units derived from the local domainUsers cache (no Directory call).
+routerAdd("GET", "/gws/org-units", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var t = h.getUserConfig(e, u.id); if (!t) return;
+    try {
+        var all = $app.findRecordsByFilter("domainUsers", "", "+orgUnitPath", 0, 0);
+        var counts = {};
+        for (var i = 0; i < all.length; i++) {
+            var path = all[i].get("orgUnitPath") || "/";
+            counts[path] = (counts[path] || 0) + 1;
+        }
+        // Build a tree. "/" is the root; "/A/B" nests under "/A".
+        var nodes = {};
+        var paths = Object.keys(counts);
+        for (var pi = 0; pi < paths.length; pi++) {
+            var pth = paths[pi];
+            nodes[pth] = { path: pth, name: (pth === "/" ? "Top level" : pth.substring(pth.lastIndexOf("/") + 1)), directCount: counts[pth], totalCount: 0, children: [] };
+        }
+        // Roll child counts into ancestors so "include sub-OUs" can show a total.
+        var sorted = paths.slice().sort(function(a, b) { return a.length - b.length; });
+        for (var si = sorted.length - 1; si >= 0; si--) {
+            var cur = sorted[si];
+            var node = nodes[cur];
+            var parts = (cur === "/") ? [] : cur.split("/").filter(function(x) { return x !== ""; });
+            var parentPath = "/";
+            if (parts.length > 1) parentPath = "/" + parts.slice(0, parts.length - 1).join("/");
+            if (nodes[parentPath] && parentPath !== cur) {
+                node.parent = parentPath;
+                nodes[parentPath].children.push(node);
+            }
+            node.totalCount += node.directCount;
+            if (node.parent && nodes[node.parent]) nodes[node.parent].totalCount += node.totalCount;
+        }
+        var roots = [];
+        for (var k in nodes) { if (!nodes[k].parent) roots.push(nodes[k]); }
+        roots.sort(function(a, b) { return a.path < b.path ? -1 : 1; });
+        e.json(200, { ok: true, units: roots, flatCount: paths.length });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Resolve an audience selector to a concrete list of addresses.
+// NOTE: nested/derived group membership is NOT expanded — direct members only.
+routerAdd("POST", "/gws/audience/resolve", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var t = h.getUserConfig(e, u.id); if (!t) return;
+    var b = JSON.parse(toString(e.request.body));
+    try {
+        var emails = {}, order = [];
+        function add(em) {
+            if (!em) return;
+            var k = String(em).toLowerCase();
+            if (!emails[k]) { emails[k] = true; order.push(em); }
+        }
+        // 1. Org units (from cache)
+        var ous = b.orgUnits || [];
+        if (ous.length) {
+            var parts = [];
+            for (var i = 0; i < ous.length; i++) {
+                var ou = ous[i];
+                if (b.includeSubOUs && ou !== "/") {
+                    parts.push('(orgUnitPath = "' + String(ou).replace(/"/g, '\\"') + '" || orgUnitPath ~ "' + String(ou).replace(/"/g, '\\"') + '/")');
+                } else {
+                    parts.push('orgUnitPath = "' + String(ou).replace(/"/g, '\\"') + '"');
+                }
+            }
+            var recs = $app.findRecordsByFilter("domainUsers", parts.join(" || "), "+primaryEmail", 0, 0);
+            for (var ri = 0; ri < recs.length; ri++) add(recs[ri].get("primaryEmail"));
+        }
+        // 2. Groups (Directory API, direct members only)
+        var groups = b.groups || [];
+        if (groups.length) {
+            var sa = h.decryptSAKey(t); if (!sa) { e.json(400, { error: "no_service_account" }); return; }
+            var ae = t.get("adminEmail") || "";
+            for (var gi = 0; gi < groups.length; gi++) {
+                var ge = groups[gi], pt = "", pages = 0;
+                do {
+                    var gurl = "https://admin.googleapis.com/admin/directory/v1/groups/" + encodeURIComponent(ge) + "/members?maxResults=200";
+                    if (pt) gurl += "&pageToken=" + encodeURIComponent(pt);
+                    var gr = h.googleApiCall(sa, ae, ["https://www.googleapis.com/auth/admin.directory.group.readonly"], gurl);
+                    var mb = gr.members || [];
+                    for (var mi = 0; mi < mb.length; mi++) if (mb[mi].type === "USER" && mb[mi].email) add(mb[mi].email);
+                    pt = gr.nextPageToken || ""; pages++;
+                } while (pt && pages < 100);
+            }
+        }
+        // 3. Free-text query (only meaningful on its own or as a union)
+        if (b.query) {
+            var qq = String(b.query).replace(/"/g, '\\"');
+            var qr = $app.findRecordsByFilter("domainUsers", '(name ~ "' + qq + '" || primaryEmail ~ "' + qq + '")', "+primaryEmail", 0, 0);
+            for (var qi = 0; qi < qr.length; qi++) add(qr[qi].get("primaryEmail"));
+        }
+        // 4. Explicit manual picks
+        var manual = b.manual || [];
+        for (var mn = 0; mn < manual.length; mn++) add(manual[mn]);
+        // 5. Exclusions
+        var ex = {};
+        var exclusions = b.exclude || [];
+        for (var ei = 0; ei < exclusions.length; ei++) ex[String(exclusions[ei]).toLowerCase()] = true;
+        var out = [];
+        for (var oi = 0; oi < order.length; oi++) {
+            if (!ex[String(order[oi]).toLowerCase()]) out.push(order[oi]);
+        }
+        e.json(200, { ok: true, emails: out, count: out.length, nestedMembersExpanded: false });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Create a bulk job. Returns immediately; the cron worker does the work.
+routerAdd("POST", "/gws/bulk/start", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var t = h.getUserConfig(e, u.id); if (!t) return;
+    var b = JSON.parse(toString(e.request.body));
+    if (!b.templateId) { e.json(400, { error: "templateId required" }); return; }
+    var list = b.emails || [];
+    if (!list.length) { e.json(400, { error: "no recipients — resolve an audience first" }); return; }
+    try {
+        // template must exist and belong to this install (ownerId scoping is not used
+        // in the single-tenant build, so just confirm it exists)
+        try { $app.findRecordById("signatureTemplates", b.templateId); }
+        catch (_) { e.json(404, { error: "template_not_found" }); return; }
+        var coll = $app.findCollectionByNameOrId("bulkJobs");
+        var rec = new Record(coll);
+        rec.set("status", "running");
+        rec.set("selector", b.selector || {});
+        rec.set("emails", list);
+        rec.set("templateId", b.templateId);
+        rec.set("total", list.length);
+        rec.set("done", 0);
+        rec.set("failed", []);
+        rec.set("chunkSize", b.chunkSize || 25);
+        rec.set("createdBy", u.id);
+        rec.set("startedAt", new Date());
+        $app.save(rec);
+        h.auditLog(u.id, "signature.bulkStart", u.email || u.id, { jobId: rec.id, total: list.length });
+        e.json(200, { ok: true, jobId: rec.id, total: list.length, chunkSize: rec.get("chunkSize") });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Poll progress.
+routerAdd("GET", "/gws/bulk/status", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var id = e.request.url.query().get("id");
+    if (!id) { e.json(400, { error: "id required" }); return; }
+    try {
+        var rec = $app.findRecordById("bulkJobs", id);
+        var failed = rec.get("failed") || [];
+        e.json(200, { ok: true, jobId: rec.id, status: rec.get("status"),
+            total: rec.get("total") || 0, done: rec.get("done") || 0,
+            failedCount: failed.length, failed: failed.slice(0, 100),
+            startedAt: rec.get("startedAt"), finishedAt: rec.get("finishedAt"),
+            lastError: rec.get("lastError") || "" });
+    } catch (err) { e.json(404, { error: "job_not_found" }); }
+});
+
+// Re-queue only the failed addresses of a finished job.
+routerAdd("POST", "/gws/bulk/retry", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var b = JSON.parse(toString(e.request.body));
+    if (!b.jobId) { e.json(400, { error: "jobId required" }); return; }
+    try {
+        var old = $app.findRecordById("bulkJobs", b.jobId);
+        var failed = old.get("failed") || [];
+        if (!failed.length) { e.json(400, { error: "nothing to retry" }); return; }
+        var emails = failed.map(function(f) { return f.email; });
+        var coll = $app.findCollectionByNameOrId("bulkJobs");
+        var rec = new Record(coll);
+        rec.set("status", "running");
+        rec.set("selector", old.get("selector") || {});
+        rec.set("emails", emails);
+        rec.set("templateId", old.get("templateId"));
+        rec.set("total", emails.length);
+        rec.set("done", 0);
+        rec.set("failed", []);
+        rec.set("chunkSize", old.get("chunkSize") || 25);
+        rec.set("createdBy", u.id);
+        rec.set("startedAt", new Date());
+        $app.save(rec);
+        e.json(200, { ok: true, jobId: rec.id, total: emails.length });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Worker: one chunk per tick, so a restart resumes instead of losing the job.
+cronAdd("gws-bulk-worker", "* * * * *", () => {
+    try {
+        var h = require(__hooks + "/../lib/helpers.js");
+        var jobs = $app.findRecordsByFilter("bulkJobs", 'status = "running"', "+startedAt", 1, 0);
+        if (!jobs || !jobs.length) return;
+        var job = jobs[0];
+        var emails = job.get("emails") || [];
+        var done = job.get("done") || 0;
+        var chunk = job.get("chunkSize") || 25;
+        var failed = job.get("failed") || [];
+        if (done >= emails.length) {
+            job.set("status", failed.length ? "failed" : "done");
+            job.set("finishedAt", new Date());
+            $app.save(job);
+            return;
+        }
+        // resolve config + template once per tick
+        var ucfg = $app.findRecordById("users", job.get("createdBy"));
+        var sa = null;
+        try { sa = h.decryptSAKey(ucfg); } catch (_) {}
+        if (!sa) { job.set("status", "failed"); job.set("lastError", "service account unavailable"); $app.save(job); return; }
+        var adminEmail = ucfg.get("adminEmail") || "";
+        var tmpl = $app.findRecordById("signatureTemplates", job.get("templateId"));
+        var thtml = tmpl.get("html") || "";
+        var sc = ["https://www.googleapis.com/auth/gmail.settings.basic", "https://www.googleapis.com/auth/gmail.settings.sharing"];
+        var end = Math.min(done + chunk, emails.length);
+        for (var i = done; i < end; i++) {
+            var email = emails[i];
+            try {
+                var cached = $app.findRecordsByFilter("domainUsers", 'primaryEmail="' + String(email).replace(/"/g, '\\"') + '"', "", 1, 0);
+                var uname = email, ufirst = "", ulast = "", utitle = "", udept = "", ucomp = "", uphone = "", uphoto = "";
+                if (cached && cached.length > 0) {
+                    uname = cached[0].get("name") || email;
+                    ufirst = cached[0].get("firstName") || "";
+                    ulast = cached[0].get("lastName") || "";
+                    utitle = cached[0].get("title") || "";
+                    udept = cached[0].get("department") || "";
+                    ucomp = cached[0].get("company") || "";
+                    uphone = cached[0].get("phone") || "";
+                    uphoto = cached[0].get("photoUrl") || "";
+                }
+                var html = thtml;
+                html = html.replace(/\{\{name\}\}/g, uname);
+                html = html.replace(/\{\{firstName\}\}/g, ufirst);
+                html = html.replace(/\{\{lastName\}\}/g, ulast);
+                html = html.replace(/\{\{email\}\}/g, email);
+                html = html.replace(/\{\{title\}\}/g, utitle);
+                html = html.replace(/\{\{department\}\}/g, udept);
+                if (!ucomp && String(email).indexOf("@") > -1) ucomp = String(email).split("@")[1];
+                html = html.replace(/\{\{company\}\}/g, ucomp);
+                html = html.replace(/\{\{phone\}\}/g, uphone);
+                html = html.replace(/\{\{photoUrl\}\}/g, uphoto);
+                html = html.replace(/<a[^>]*>\s*<\/a>/gi, '');
+                html = html.replace(/<(?:p|div|span)[^>]*>\s*<\/(?:p|div|span)>/gi, '');
+                html = html.replace(/^\s*$/gm, '');
+                h.googleApiCall(sa, email, sc, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) + "/settings/sendAs/" + encodeURIComponent(email), "PATCH", { signature: html });
+            } catch (uer) {
+                failed.push({ email: email, error: String(uer.message || uer) });
+            }
+        }
+        job.set("done", end);
+        job.set("failed", failed);
+        if (end >= emails.length) {
+            job.set("status", failed.length ? "failed" : "done");
+            job.set("finishedAt", new Date());
+        }
+        $app.save(job);
+    } catch (err) {
+        console.log("gws-bulk-worker error: " + err.message);
+    }
+});
+
 routerAdd("GET", "/frontend/{path...}", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "GET, OPTIONS")) return;

@@ -468,15 +468,6 @@ function onScheduleTemplateChange() {
     updateScheduleSourceNote();
 }
 
-function reloadScheduleTemplate() {
-    if (!document.getElementById('sch-template').value) {
-        notify('Pick a template first', 'error');
-        return;
-    }
-    loadTemplateIntoEditor();
-    notify('Template content loaded into the editor', 'success');
-}
-
 // Ticking "follow live" means the editor is not the source, so say so and make it
 // obvious rather than silently ignoring it.
 function onScheduleTemplateLiveChange() {

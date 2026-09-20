@@ -617,3 +617,40 @@ note changes with the box, the editor dims when following, an empty editor warns
 instead of dropping content, snapshot mode stores html with no templateId, live
 mode stores the templateId with no html, and both reopen in the right mode.
 Regression: overlay stack 13/13, Schedules UI 32/32.
+
+---
+
+## Defect 16 — the same interaction existed twice, with a button doing it by hand
+
+Picking a template should be ONE action: you select it and the content loads.
+Instead there were two different mechanisms:
+
+| Place | On change | Extra button |
+|---|---|---|
+| Schedule editor | loaded on change | **Load** — *which I added in the previous fix* |
+| User Signature tab | did nothing | **Apply** — opened an alias modal |
+
+So the schedule editor had a button that re-did what `onchange` already did, and
+the user tab needed a button because its select had no handler at all. Same job,
+two shapes — and a button next to a working `onchange` is not just redundant, it
+implies the change did not take effect.
+
+Unified: **selecting a template loads its content**, in both places, with no
+button.
+
+* schedule editor: the **Load** button and `reloadScheduleTemplate()` are gone.
+* user Signature tab: the select now has an `onchange` that loads into the editor
+  and says "press Save to apply it"; the **Apply** button and its alias modal
+  (`applySigTemplate`, `applyTemplateToAliases`) are gone. **Save** already
+  persists the editor, so nothing is lost. Applying a template across many
+  addresses is what **Bulk Signatures** is for — this tab edits one address.
+
+Also: loading into a not-yet-mounted editor used to return silently. It now says
+so, because a control that does nothing when touched is the failure mode this
+whole class of bug keeps producing.
+
+### Verified
+`test_tpl_consistency.py` (12 checks) is written as a **comparison**: it asserts
+the two selects behave identically — both load on change, neither offers an extra
+button, both keep Delete — so a future change to one that forgets the other fails
+there. Plus: `test_template_load.py` 20/20, Schedules UI 32/32, UI split 22/22.

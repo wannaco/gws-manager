@@ -259,12 +259,8 @@
 
         <div class="gws-field">
           <label class="gws-label">Signature</label>
-          <div class="flex gap-2 mb-2">
-            <select id="sch-template" class="select select-bordered flex-1"
-                    onchange="onScheduleTemplateChange()"></select>
-            <button class="btn btn-sm btn-outline" onclick="reloadScheduleTemplate()"
-                    title="Load the selected template's content into the editor again">Load</button>
-          </div>
+          <select id="sch-template" class="select select-bordered w-full mb-2"
+                  onchange="onScheduleTemplateChange()"></select>
 
           <label class="gws-checkline">
             <input type="checkbox" id="sch-template-live" class="checkbox checkbox-sm"

@@ -153,7 +153,7 @@ async function loadSignature() {
       '<select id="sig-addr-picker" class="select select-bordered flex-1" onchange="switchSigAddress(this.value)">' + addrOptions + '</select>' +
       '<button class="btn btn-outline" onclick="saveAsTemplateModal(\'sig\')">Save as Template</button>' +
       '</div>' +
-      '<div class="flex gap-2 mb-3" id="sig-template-row"><select id="sig-template-select" class="select select-bordered select-sm flex-1"><option value="">Apply template...</option></select><button class="btn btn-sm btn-outline" onclick="applySigTemplate()">Apply</button><button class="btn btn-sm btn-error btn-outline" title="Delete the selected template" onclick="deleteSelectedTemplate(\'sig-template-select\')">Delete</button></div>' +
+      '<div class="flex gap-2 mb-3" id="sig-template-row"><select id="sig-template-select" class="select select-bordered select-sm flex-1" onchange="onSigTemplateChange()"><option value="">Load a template...</option></select><button class="btn btn-sm btn-error btn-outline" title="Delete the selected template" onclick="deleteSelectedTemplate(\'sig-template-select\')">Delete</button></div>' +
       '<div id="sig-editor" class="border border-base-300 rounded-lg"></div>' +
       '<div class="flex gap-2 flex-wrap mt-2">' +
         '<button class="btn btn-outline btn-xs" onclick="insertPlaceholder(\'{{name}}\')">{{name}}</button>' +
@@ -225,89 +225,34 @@ async function populateSigTemplates() {
     window._loadedTemplates = r.templates || [];
     var sel = document.getElementById('sig-template-select');
     if (!sel) return;
-    sel.innerHTML = '<option value="">Apply template...</option>' +
+    sel.innerHTML = '<option value="">Load a template...</option>' +
       window._loadedTemplates.map(function(t) {
         return '<option value="' + t.id + '">' + esc(t.name) + '</option>';
       }).join('');
   } catch(_) {}
 }
 
-function applySigTemplate() {
-  const tid = document.getElementById('sig-template-select')?.value;
-  if (!tid || !window._loadedTemplates) return;
-  const t = window._loadedTemplates.find(x => x.id === tid);
+// Selecting a template LOADS its content into the editor. There is deliberately
+// no separate "Apply" button: selecting is the action, and the Save button below
+// persists whatever is in the editor. (Applying a template to many mailboxes is
+// what Bulk Signatures is for -- this tab edits one address at a time.)
+async function onSigTemplateChange() {
+  const sel = document.getElementById('sig-template-select');
+  if (!sel) return;
+  const tid = sel.value;
+  if (!tid) return;                       // "Load a template..." = no-op
+  const t = (window._loadedTemplates || []).find(x => x.id === tid);
   if (!t) return;
-
-  const sendAs = window._sendAsAddresses || [{ sendAsEmail: window._sigUser, isDefault: true, isPrimary: true }];
-  const content = `
-    <p class="text-sm opacity-70 mb-4">Apply the "${esc(t.name)}" template to which addresses?</p>
-    <div class="form-control">
-      <label class="label cursor-pointer">
-        <span class="label-text font-bold">Select All</span>
-        <input type="checkbox" class="checkbox" onchange="document.querySelectorAll('.alias-checkbox').forEach(c => c.checked = this.checked)">
-      </label>
-    </div>
-    <div class="max-h-60 overflow-y-auto mt-2">
-      ${sendAs.map(a => `
-        <div class="form-control">
-          <label class="label cursor-pointer">
-            <span class="label-text">${esc(a.sendAsEmail)}</span>
-            <input type="checkbox" class="checkbox alias-checkbox" value="${esc(a.sendAsEmail)}">
-          </label>
-        </div>
-      `).join('')}
-    </div>`;
-  
-  const actions = [
-    { label: 'Cancel', class: 'btn-ghost', onclick: 'closeModal()' },
-    { label: 'Apply', class: 'btn-primary', onclick: `applyTemplateToAliases('${tid}')` }
-  ];
-
-  openCustomModal('Apply Signature Template', content, actions);
-}
-
-async function applyTemplateToAliases(templateId) {
-  const t = window._loadedTemplates.find(x => x.id === templateId);
-  if (!t) {
-    notify('Template not found', 'error');
+  const html = t.html || '';
+  if (!window._sigEd) {
+    // never fail silently -- the editor is created a moment after the tab opens
+    notify('The editor is still loading — try again in a moment', 'warning');
     return;
   }
-
-  const selectedAliases = Array.from(document.querySelectorAll('.alias-checkbox:checked')).map(cb => cb.value);
-  if (selectedAliases.length === 0) {
-    notify('No addresses selected', 'warning');
+  if (!String(html).trim()) {
+    notify('That template is empty — add content to it first', 'warning');
     return;
   }
-
-  closeModal();
-  notify(`Applying template to ${selectedAliases.length} address(es)...`, 'info');
-
-  let successCount = 0;
-  let errorCount = 0;
-
-  for (const alias of selectedAliases) {
-    try {
-      await api('POST', '/gws/signature', {
-        action: 'update',
-        userEmail: window._sigUser,
-        sendAsEmail: alias,
-        signature: t.html
-      });
-      successCount++;
-    } catch (e) {
-      console.error(`Failed to apply signature to ${alias}:`, e);
-      errorCount++;
-    }
-  }
-
-  if (errorCount > 0) {
-    notify(`Applied to ${successCount} address(es) with ${errorCount} failure(s).`, 'error');
-  } else {
-    notify(`Successfully applied template to ${successCount} address(es).`, 'success');
-  }
-
-  // Refresh editor if the current alias was updated
-  if (selectedAliases.includes(window._sigSendAs)) {
-    switchSigAddress(window._sigSendAs);
-  }
+  window._sigEd.setComponents(cleanHtmlString(html));
+  notify(`Loaded “${t.name}” — press Save to apply it`, 'info');
 }

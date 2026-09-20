@@ -156,6 +156,48 @@ grep -c '</div>' frontend/index.html
 
 ---
 
+## PocketBase JSVM: two things that will bite you
+
+1. **`json` fields arrive as a byte slice, not an array.** `Array.isArray()`
+   returns **true** on it, so the usual guard does not help. `.length` is the
+   BYTE count and `[0]` is a NUMBER (the first character's code):
+
+   ```
+   record.get("emails")          ->  object, Array.isArray() === true
+   record.get("emails").length   ->  70        (bytes, not entries)
+   record.get("emails")[0]       ->  91        ('[' — a number)
+   ```
+
+   Looping that with `i < list.length` silently walks *characters* instead of
+   records — no exception, just wrong behaviour. Always normalise through
+   `asArray()` / `asString()` in `lib/helpers.js`.
+
+2. **`sleep(ms)` exists as a global function** (there is no `setTimeout`, and
+   no `$os.sleep`). It blocks the whole goja runtime synchronously, so it is
+   fine for backoff inside a worker but must never be used in a hot route.
+
+## Testing against a stand-in for Google
+
+The signer, the OAuth token endpoint and every Google API URL are
+env-overridable, so the whole app — bulk apply included — can be exercised
+without a Workspace domain:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `GWS_SIGNER_URL` | `http://localhost:9999/sign` | Go RS256 signer |
+| `GWS_TOKEN_URL` | `https://oauth2.googleapis.com/token` | OAuth token exchange |
+| `GWS_API_BASE` | *(unset)* | rewrites all Google API calls to this base |
+
+All three default to the real endpoints, so leaving them unset changes nothing
+in production (asserted in the tests). With them set, `gmail.googleapis.com/...`
+becomes `<GWS_API_BASE>/...`, so a mock only has to serve the path, not the host.
+
+This is how the bulk worker was tested: a local server speaking the Gmail error
+shapes (403 `userRateLimitExceeded`, `Retry-After`, permission errors) plus a
+`SIGKILL` mid-run to prove resumption.
+
+---
+
 ## Testing with Playwright
 
 Playwright is installed in `node_modules/`. Use it to test before claiming something works.

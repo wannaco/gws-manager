@@ -212,9 +212,39 @@ the Gmail error shapes (including `Retry-After`) exercises the whole path.
 Run order matters: the worker is `cronAdd(..., "* * * * *")`, so a tick takes up
 to 60s.
 
-## Known gap
+## Defect 5 — one stalled job blocked the entire queue
 
-The worker processes **one job per tick, oldest first**. A job that can never
-progress would therefore block the queue behind it. There is a lock timeout
-(4 minutes) that frees the *lock*, but no stall detector that fails the *job*.
-Worth adding before this is sold to anyone with several admins.
+The worker asked for `findRecordsByFilter(..., limit 1, ...)`, took `jobs[0]`,
+and **returned early if that job was locked**. So a single job that could not
+progress held the queue indefinitely. Reproduced: a job whose owner user had been
+deleted stayed `status="running"` while an unrelated, healthy job behind it sat
+at `done=0` for 5 consecutive ticks (150s).
+
+Three changes:
+
+1. **Pick the oldest *runnable* job**, not the oldest job — iterate the running
+   jobs and skip any that is currently locked.
+2. **Fail a job that can never run.** A missing owner user now fails the job
+   immediately (`lastError: "owner user no longer exists"`) instead of throwing
+   on every tick.
+3. **Stall detection.** A tick that completes without advancing `done` increments
+   `stallCount`; any progress resets it. At `STALL_LIMIT` (3) consecutive
+   unproductive ticks the job is failed with
+   `"stalled: no progress in 3 consecutive ticks"`.
+4. **Fairness.** `stallCount > 0` also means "was unproductive last tick", and
+   the selection prefers jobs that were productive. Without this the oldest job
+   was still chosen every tick — it was *retried*, but jobs behind it still got
+   nothing. Now a stalling job yields to healthy ones and is only retried once
+   the healthy ones are done.
+
+Verified after the fix, with a permanently-stalling job ahead of a healthy one:
+
+```
+t+128s   A stall=1  running   |  B done=30  done      <- B ran, not starved
+t+256s   A stall=3  FAILED    |  B done=30  done      <- stall detector fired
+```
+
+Serial processing is retained **deliberately**: each user costs several HTTP
+calls, and two concurrent runs would double the load on the same per-project
+Google quota and cause more throttling for both. The fix was fairness, not
+concurrency.

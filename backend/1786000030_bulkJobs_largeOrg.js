@@ -30,6 +30,9 @@ migrate((app) => {
     { name: "throttledMs", type: "number" },
     { name: "avgMsPerUser", type: "number" },
     { name: "maxPerTick", type: "number" },
+    // consecutive ticks that made no progress; a job that stalls is failed
+    // so it cannot hold up the queue behind it
+    { name: "stallCount", type: "number" },
   ];
 
   let changed = false;
@@ -48,7 +51,7 @@ migrate((app) => {
     return;
   }
   for (const n of ["lockedAt", "dryRun", "retries", "rateLimited",
-                   "throttledMs", "avgMsPerUser", "maxPerTick"]) {
+                   "throttledMs", "avgMsPerUser", "maxPerTick", "stallCount"]) {
     const f = coll.fields.getByName(n);
     if (f) coll.fields.removeById(f.id);
   }

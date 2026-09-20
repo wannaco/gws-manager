@@ -1011,6 +1011,7 @@ routerAdd("GET", "/gws/bulk/status", (e) => {
             rateLimited: rec.get("rateLimited") || 0,
             throttledMs: rec.get("throttledMs") || 0,
             avgMsPerUser: rec.get("avgMsPerUser") || 0,
+            stallCount: rec.get("stallCount") || 0,
             // rough estimate of remaining wall-clock time, for the UI
             etaMs: (rec.get("avgMsPerUser") || 0) *
                    Math.max(0, (rec.get("total") || 0) - (rec.get("done") || 0)),
@@ -1068,21 +1069,54 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
 //  * TOKEN REUSED ACROSS RETRIES. The OAuth token is fetched once per user, so
 //    retrying does not hammer the token endpoint, which is rate limited too.
 cronAdd("gws-bulk-worker", "* * * * *", () => {
-    var BUDGET_MS = 50000;   // stay well inside the 60s tick
-    var LOCK_MS = 240000;    // a crashed tick frees the job after 4 minutes
+    var BUDGET_MS = 50000;    // stay well inside the 60s tick
+    var LOCK_MS = 240000;     // a crashed tick frees the job after 4 minutes
+    var STALL_LIMIT = 3;      // consecutive no-progress ticks before failing
     var h = require(__hooks + "/../lib/helpers.js");
     var job = null;
     try {
-        var jobs = $app.findRecordsByFilter("bulkJobs", 'status = "running"', "+startedAt", 1, 0);
-        if (!jobs || !jobs.length) return;
-        job = jobs[0];
+        // Pick the oldest RUNNABLE job, not simply the oldest job.
+        //
+        // Previously this asked for limit 1 and returned early if that one job
+        // happened to be locked, which meant a single locked or stalled job
+        // blocked every other job in the queue indefinitely (verified: a job
+        // whose owner user was deleted held the queue for 5 ticks and stopped
+        // an unrelated job behind it from ever running).
+        //
+        // Jobs are still processed one at a time on purpose: each user costs
+        // several HTTP calls, and two concurrent runs would double the pressure
+        // on the same per-project Google quota and cause more throttling for
+        // both. The fix is fairness, not concurrency.
+        var running = $app.findRecordsByFilter("bulkJobs", 'status = "running"', "+startedAt", 50, 0);
+        if (!running || !running.length) return;
 
-        // --- overlap guard -------------------------------------------------
-        var held = job.get("lockedAt");
-        if (held) {
+        var isFree = function (cand) {
+            var held = cand.get("lockedAt");
+            if (!held) return true;
+            var v = String(held);
+            // a zero/blank date means "not locked"
+            if (!v || v.indexOf("0001-01-01") === 0) return true;
             var ageMs = Date.now() - new Date(held).getTime();
-            if (ageMs >= 0 && ageMs < LOCK_MS) return;   // another tick is on it
+            if (isNaN(ageMs)) return true;
+            return ageMs < 0 || ageMs >= LOCK_MS;
+        };
+
+        // Pass 1: oldest job that is free AND was productive last time.
+        // Pass 2: oldest free job, even if it stalled last time.
+        //
+        // Without pass 2's ordering, a job that can never make progress would be
+        // picked on every single tick purely because it is the oldest, and every
+        // job queued behind it would starve forever.
+        for (var pass = 0; pass < 2 && !job; pass++) {
+            for (var ri = 0; ri < running.length; ri++) {
+                var cand = running[ri];
+                if (!isFree(cand)) continue;
+                if (pass === 0 && (cand.get("stallCount") || 0) > 0) continue;
+                job = cand;
+                break;
+            }
         }
+        if (!job) return;   // every running job is currently locked
         job.set("lockedAt", new Date());
         $app.save(job);
 
@@ -1104,7 +1138,18 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
         }
 
         // resolve config + template once per tick
-        var ucfg = $app.findRecordById("users", job.get("createdBy"));
+        var ucfg = null;
+        try { ucfg = $app.findRecordById("users", job.get("createdBy")); } catch (_) {}
+        if (!ucfg && !dryRun) {
+            // The owner was deleted. Previously this threw on every tick and the
+            // job stayed "running" forever, blocking the queue. Fail it instead.
+            job.set("status", "failed");
+            job.set("lastError", "owner user no longer exists");
+            job.set("finishedAt", new Date());
+            job.set("lockedAt", null);
+            $app.save(job);
+            return;
+        }
         var sa = null;
         if (!dryRun) {
             // A dry run calls nothing, so it must not demand a service account —
@@ -1131,6 +1176,7 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
 
         var t0 = Date.now();
         var processedThisTick = 0;
+        var doneAtStart = done;
         var i = done;
 
         while (i < emails.length && processedThisTick < budget) {
@@ -1203,6 +1249,18 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
         if (i >= emails.length) {
             job.set("status", failed.length ? "failed" : "done");
             job.set("finishedAt", new Date());
+        } else if (i === doneAtStart) {
+            // No progress this tick. A job that can never advance must not hold
+            // the queue, so count consecutive stalls and fail it.
+            var sc = (job.get("stallCount") || 0) + 1;
+            job.set("stallCount", sc);
+            if (sc >= STALL_LIMIT) {
+                job.set("status", "failed");
+                job.set("finishedAt", new Date());
+                job.set("lastError", "stalled: no progress in " + sc + " consecutive ticks");
+            }
+        } else {
+            job.set("stallCount", 0);
         }
         job.set("lockedAt", null);
         $app.save(job);

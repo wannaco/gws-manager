@@ -386,3 +386,81 @@ every signature)"`. Verified: `done=0` and **zero Gmail writes**.
 | blank-template browser test (right editor + guard) | 11/11 |
 | blank template refused, no Gmail write | 4/4 |
 | full bulk regression | 22/22 |
+
+---
+
+# Addendum 4 — per-user apply, BulkTemp spam, template deletion, jobs page
+
+Four items from real use.
+
+## Defect 9 — two more send-as writes still assumed the user's own address
+
+The send-as fix in addendum 3 only covered the **new** bulk worker. Two older
+paths made the same assumption:
+
+```js
+// per-user "Save" on a user's Signature tab
+"/settings/sendAs/" + encodeURIComponent(te)        // te = b.sendAsEmail
+// legacy bulkApply branch
+"/settings/sendAs/" + encodeURIComponent(email)     // the user's own address
+```
+
+Both produce **400 FAILED_PRECONDITION** whenever the address is not one of that
+user's aliases. The per-user panel reads its alias list from `/gws/send-as`, and
+that call is wrapped in `try {} catch(e) {}` on the client — so if it fails
+(permissions, a transient error) the UI silently falls back to `sendAsEmail =
+the user's address`, and Save then 400s. That is "applying to individual users is
+impossible".
+
+Both now call `resolveSendAs()` server-side and no longer trust the client's
+pick, falling back to it only if the lookup itself fails. `sendAsUnverified`
+surfaces as a named error instead of a bare 400.
+
+## Defect 10 — BulkTemp template created on every run
+
+`executeBulkApply()` POSTed the editor content as a **new template named
+"BulkTemp" on every single run**, purely so the worker had an id to read. That is
+where the pile of BulkTemp rows came from.
+
+Jobs now carry the HTML themselves (`bulkJobs.htmlOverride`, new migration
+`1786000040`). `templateId` is still accepted so applying a saved template works,
+but it is no longer required. Verified: an inline-HTML job creates **zero**
+template rows and applies correctly.
+
+## Defect 11 — no way to delete a stored template
+
+The API supported `action=delete`; nothing in the UI called it, so templates
+could only ever accumulate. There is now a **Delete** button beside both template
+pickers (Bulk Signatures and a user's Signature tab), with confirmation.
+
+## Defect 12 — the job queue cluttered the compose page
+
+The queue table sat under the editor. It now has **its own page** with a sidebar
+entry (**Bulk Jobs**), showing every run with status, counts, failures, and
+per-job diagnostics.
+
+- The compose page keeps only the **current job's** progress bar and a link to
+  Bulk Jobs.
+- `navTo()` knows the new section; `onBulkJobsSectionShown()` loads the list.
+- The sidebar is **inline in `index.html`** — `components/dashboard-sidebar.html`
+  is dead code that nothing references. The item was added to both so they cannot
+  disagree, but that file should be deleted.
+
+## Two process notes
+
+- An unbalanced `</div>` was introduced while moving the jobs card (four
+  consecutive closes left from the removed card). Browsers auto-recover, so every
+  assertion still passed — the file was only caught by a depth walk that went
+  negative. Compare `<div>`/`</div>` counts against `HEAD` after HTML surgery.
+- Two suites were run **concurrently against the same PocketBase and the same
+  mock**. One of them SIGKILLs the server mid-run, which made the other report 3
+  bogus failures. Run them sequentially.
+
+## Verified
+
+| Suite | Result |
+|---|---|
+| inline html job, no template row | 12/12 |
+| UI split (sidebar, pages, delete buttons, per-user tab) | 22/22 |
+| send-as end-to-end | 5/5 |
+| full bulk regression | 22/22 |

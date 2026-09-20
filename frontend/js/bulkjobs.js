@@ -171,10 +171,41 @@ async function resumeLastBulkJob() {
     } catch (_) {
         rememberBulkJob(null);   // job is gone (or the id is stale)
     }
+}
+
+// Called when the Bulk Signatures section is shown. The job LIST now lives on
+// its own page, so here we only re-attach to the job this browser started --
+// otherwise the panel would reload the whole queue on the compose page.
+function onBulkSectionShown() {
+    resumeLastBulkJob();
+}
+
+// Called when the Bulk Jobs page is shown.
+function onBulkJobsSectionShown() {
     loadBulkJobs();
 }
 
-// Called when the Bulk Signatures section is shown.
-function onBulkSectionShown() {
-    resumeLastBulkJob();
+// ── template management ──────────────────────────────────────────────────────
+// There was no way to delete a stored template at all: the API supported
+// action=delete but nothing in the UI called it, so blank and auto-generated
+// rows accumulated forever.
+
+async function deleteTemplate(templateId, name) {
+    if (!templateId) return;
+    if (!confirm(`Delete the template "${name}"?\n\nThis cannot be undone.`)) return;
+    try {
+        await api('POST', '/gws/signature-templates', { action: 'delete', templateId: templateId });
+        notify('Template deleted', 'success');
+        if (typeof loadTemplatesList === 'function') await loadTemplatesList();
+        if (typeof populateSigTemplates === 'function') await populateSigTemplates();
+        if (typeof loadBulkJobs === 'function') loadBulkJobs();
+    } catch (e) { notify(e.message, 'error'); }
+}
+
+// Delete whichever template is selected in a <select>.
+async function deleteSelectedTemplate(selectId) {
+    const sel = document.getElementById(selectId);
+    if (!sel || !sel.value) { notify('Pick a template first', 'error'); return; }
+    const name = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : sel.value;
+    await deleteTemplate(sel.value, name);
 }

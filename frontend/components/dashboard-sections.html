@@ -97,26 +97,11 @@
     </div>
 
     <button id="btn-bulk-apply" class="btn btn-primary w-full" onclick="executeBulkApply()" disabled>Bulk Apply</button>
-
-    <!-- ── Bulk jobs: every job, not just the one this tab started ───────── -->
-    <div class="card bg-base-100 shadow mt-4">
-      <div class="card-body py-4">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-semibold">Bulk jobs</span>
-          <button class="btn btn-xs btn-ghost" onclick="loadBulkJobs()">Refresh</button>
-        </div>
-        <div id="bulk-jobs-list" class="text-xs">
-          <div class="opacity-60 py-2">Loading…</div>
-        </div>
-        <div id="bulk-job-failures" class="hidden mt-3">
-          <div class="flex items-center justify-between mb-1 gap-2">
-            <span class="text-xs font-semibold" id="bulk-job-failures-title"></span>
-            <button class="btn btn-xs btn-ghost" onclick="document.getElementById('bulk-job-failures').classList.add('hidden')">Hide</button>
-          </div>
-          <div class="max-h-60 overflow-y-auto border border-base-300 rounded p-2 text-xs font-mono" id="bulk-job-failures-list"></div>
-        </div>
-      </div>
+    <div class="text-xs opacity-60 mt-2 text-center">
+      This page shows the job you start here. Every job lives in
+      <a class="link link-primary cursor-pointer" onclick="navTo('bulk-jobs')">Bulk Jobs</a>.
     </div>
+
   </div>
 
   <!-- ── Audience builder overlay ──────────────────────────────────────── -->
@@ -191,6 +176,32 @@
   </div>
 
   <!-- Settings section -->
+  <!-- ── Bulk Jobs: its own page ────────────────────────────── -->
+  <div id="section-bulk-jobs" class="hidden fade-in">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <h2 class="text-xl font-bold">Bulk Jobs</h2>
+      <button class="btn btn-outline btn-sm" onclick="loadBulkJobs()">Refresh</button>
+    </div>
+    <p class="text-xs opacity-60 mb-4">
+      Every apply run, newest first. A run is picked up once a minute, so progress
+      updates on that cadence. You can leave this page — the job keeps going.
+    </p>
+
+    <div id="bulk-jobs-list" class="text-xs">
+      <div class="opacity-60 py-2">Loading…</div>
+    </div>
+
+    <div id="bulk-job-failures" class="hidden mt-4">
+      <div class="flex items-center justify-between mb-1 gap-2">
+        <span class="text-xs font-semibold" id="bulk-job-failures-title"></span>
+        <button class="btn btn-xs btn-ghost"
+                onclick="document.getElementById('bulk-job-failures').classList.add('hidden')">Hide</button>
+      </div>
+      <div class="max-h-60 overflow-y-auto border border-base-300 rounded p-2 text-xs font-mono"
+           id="bulk-job-failures-list"></div>
+    </div>
+  </div>
+
   <div id="section-settings" class="hidden fade-in">
     <h2 class="text-xl font-bold mb-4">Settings</h2>
     <div class="alert alert-info text-sm mb-4">

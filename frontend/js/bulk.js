@@ -66,6 +66,8 @@ async function loadTemplatesList() {
                 ${window._loadedTemplates.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}
             </select>
             <button class="btn btn-sm" onclick="applyTemplate()">Apply</button>
+            <button class="btn btn-sm btn-error btn-outline" title="Delete the selected template"
+                    onclick="deleteSelectedTemplate('template-select')">Delete</button>
         </div>
     `;
     // Prevent duplicates
@@ -90,12 +92,14 @@ async function executeBulkApply() {
     const btn = $('btn-bulk-apply');
     btn.disabled = true; btn.textContent = 'Starting...';
     try {
-        // Persist the signature as a template for the job to read, then queue it.
-        const t = await api('POST', '/gws/signature-templates', { action: 'create', name: 'BulkTemp', html: html });
+        // Send the signature WITH the job. Previously this created a brand new
+        // template named "BulkTemp" on every single run just so the worker had an
+        // id to read, which left an undeletable pile of identical rows behind.
         const r = await api('POST', '/gws/bulk/start', {
-            templateId: t.templateId,
+            html: html,
             emails: recipients,
             selector: audienceSelector(),
+            dryRun: !!window._bulkDryRun,
         });
         window._bulkJob = r.jobId;
         showBulkProgress(r.total);

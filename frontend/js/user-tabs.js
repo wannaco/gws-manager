@@ -153,7 +153,7 @@ async function loadSignature() {
       '<select id="sig-addr-picker" class="select select-bordered flex-1" onchange="switchSigAddress(this.value)">' + addrOptions + '</select>' +
       '<button class="btn btn-outline" onclick="saveAsTemplateModal(\'sig\')">Save as Template</button>' +
       '</div>' +
-      '<div class="flex gap-2 mb-3" id="sig-template-row"><select id="sig-template-select" class="select select-bordered select-sm flex-1"><option value="">Apply template...</option></select><button class="btn btn-sm btn-outline" onclick="applySigTemplate()">Apply</button></div>' +
+      '<div class="flex gap-2 mb-3" id="sig-template-row"><select id="sig-template-select" class="select select-bordered select-sm flex-1"><option value="">Apply template...</option></select><button class="btn btn-sm btn-outline" onclick="applySigTemplate()">Apply</button><button class="btn btn-sm btn-error btn-outline" title="Delete the selected template" onclick="deleteSelectedTemplate(\'sig-template-select\')">Delete</button></div>' +
       '<div id="sig-editor" class="border border-base-300 rounded-lg"></div>' +
       '<div class="flex gap-2 flex-wrap mt-2">' +
         '<button class="btn btn-outline btn-xs" onclick="insertPlaceholder(\'{{name}}\')">{{name}}</button>' +

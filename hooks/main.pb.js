@@ -564,9 +564,22 @@ routerAdd("POST", "/gws/signature", (e) => {
             html = html.replace(/<a[^>]*>\s*<\/a>/gi, '');
             html = html.replace(/<(?:p|div|span)[^>]*>\s*<\/(?:p|div|span)>/gi, '');
             html = html.replace(/^\s*$/gm, '');
-            h.googleApiCall(sa, b.userEmail, sc, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(b.userEmail) + "/settings/sendAs/" + encodeURIComponent(te), "PATCH", { signature: html });
-            h.auditLog(u.id, "signature.update", u.email || u.id, { userEmail: b.userEmail, sendAsEmail: te });
-            e.json(200, { ok: true, action: "updated", sendAsEmail: te }); return;
+            // Do NOT trust the address the client picked. Gmail answers
+            // 400 FAILED_PRECONDITION when you PATCH a sendAs address that is
+            // not one of that user's aliases -- which is exactly what happens
+            // when the alias list could not be read and the UI fell back to the
+            // user's own address. Resolve it server-side and fall back to the
+            // client's pick only if the lookup itself fails.
+            var token = h.googleAccessToken(sa, b.userEmail, sc);
+            var resolved = te;
+            try { resolved = h.resolveSendAs(token, b.userEmail); } catch (rErr) {
+                if (rErr && rErr.reason === "sendAsUnverified") {
+                    e.json(400, { error: "sendAsUnverified", message: rErr.message }); return;
+                }
+            }
+            h.googleApiRequest(token, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(b.userEmail) + "/settings/sendAs/" + encodeURIComponent(resolved), "PATCH", { signature: html });
+            h.auditLog(u.id, "signature.update", u.email || u.id, { userEmail: b.userEmail, sendAsEmail: resolved, requested: te });
+            e.json(200, { ok: true, action: "updated", sendAsEmail: resolved }); return;
         }
         if (act === "bulkApply") {
             if (!b.templateId || !b.userEmails || !Array.isArray(b.userEmails) || b.userEmails.length === 0) {
@@ -574,7 +587,8 @@ routerAdd("POST", "/gws/signature", (e) => {
             }
             var tmpl;
             try { tmpl = $app.findRecordById("signatureTemplates", b.templateId); } catch (_) { e.json(404, { error: "template_not_found" }); return; }
-            var thtml = tmpl.get("html") || "";
+            // json/editor field -> decode (see asArray/asString in lib/helpers.js)
+            var thtml = h.asString(tmpl.get("html"));
             var results = [];
             for (var i = 0; i < b.userEmails.length; i++) {
                 var email = b.userEmails[i];
@@ -608,7 +622,12 @@ routerAdd("POST", "/gws/signature", (e) => {
                     html = html.replace(/<a[^>]*>\s*<\/a>/gi, '');
                     html = html.replace(/<(?:p|div|span)[^>]*>\s*<\/(?:p|div|span)>/gi, '');
                     html = html.replace(/^\s*$/gm, '');
-                    h.googleApiCall(sa, email, sc, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) + "/settings/sendAs/" + encodeURIComponent(email), "PATCH", { signature: html });
+                    // resolve the alias rather than assuming the user's own
+                    // address is a sendAs address (400 FAILED_PRECONDITION)
+                    var ltok = h.googleAccessToken(sa, email, sc);
+                    var lsenda = email;
+                    try { lsenda = h.resolveSendAs(ltok, email); } catch (_) {}
+                    h.googleApiRequest(ltok, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) + "/settings/sendAs/" + encodeURIComponent(lsenda), "PATCH", { signature: html });
                     results.push({ email: email, ok: true });
                 } catch (uer) { results.push({ email: email, ok: false, error: uer.message }); }
             }
@@ -960,20 +979,27 @@ routerAdd("POST", "/gws/bulk/start", (e) => {
     var u = h.authUser(e); if (!u) return;
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var b = JSON.parse(toString(e.request.body));
-    if (!b.templateId) { e.json(400, { error: "templateId required" }); return; }
+    // Either an inline signature (usual: from the editor) or a saved template.
+    var htmlInline = (typeof b.html === "string") ? b.html : "";
+    if (!htmlInline.trim() && !b.templateId) {
+        e.json(400, { error: "html or templateId required" }); return;
+    }
     var list = b.emails || [];
     if (!list.length) { e.json(400, { error: "no recipients — resolve an audience first" }); return; }
     try {
-        // template must exist and belong to this install (ownerId scoping is not used
-        // in the single-tenant build, so just confirm it exists)
-        try { $app.findRecordById("signatureTemplates", b.templateId); }
-        catch (_) { e.json(404, { error: "template_not_found" }); return; }
+        if (b.templateId) {
+            // confirm it exists (ownerId scoping is not used in the single-tenant build)
+            try { $app.findRecordById("signatureTemplates", b.templateId); }
+            catch (_) { e.json(404, { error: "template_not_found" }); return; }
+        }
         var coll = $app.findCollectionByNameOrId("bulkJobs");
         var rec = new Record(coll);
         rec.set("status", "running");
         rec.set("selector", b.selector || {});
         rec.set("emails", list);
-        rec.set("templateId", b.templateId);
+        rec.set("templateId", b.templateId || "");
+        // the html travels with the job, so no throwaway template row is needed
+        if (htmlInline.trim()) rec.set("htmlOverride", htmlInline);
         rec.set("total", list.length);
         rec.set("done", 0);
         rec.set("failed", []);
@@ -1040,7 +1066,9 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
         rec.set("status", "running");
         rec.set("selector", old.get("selector") || {});
         rec.set("emails", emails);
-        rec.set("templateId", old.get("templateId"));
+        rec.set("templateId", old.get("templateId") || "");
+        var oldHtml = h.asString(old.get("htmlOverride"));
+        if (oldHtml) rec.set("htmlOverride", oldHtml);
         rec.set("total", emails.length);
         rec.set("done", 0);
         rec.set("failed", []);
@@ -1167,11 +1195,16 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
                 return;
             }
         }
-        var tmpl = $app.findRecordById("signatureTemplates", job.get("templateId"));
-        // `html` is an editor field: PocketBase hands it back as a byte slice, so
-        // decode before testing it. An effectively-empty template would set an
-        // EMPTY signature on every recipient, i.e. wipe their signatures. Refuse.
-        var thtml = h.asString(tmpl.get("html"));
+        // The html usually travels on the job (editor content). Fall back to a
+        // saved template when one was named instead.
+        // `html`/`htmlOverride` are editor fields: PocketBase hands them back as a
+        // byte slice, so decode before testing. An effectively-empty signature
+        // would set an EMPTY signature on every recipient, i.e. wipe theirs.
+        var thtml = h.asString(job.get("htmlOverride"));
+        if (!thtml.trim() && job.get("templateId")) {
+            var tmpl = $app.findRecordById("signatureTemplates", job.get("templateId"));
+            thtml = h.asString(tmpl.get("html"));
+        }
         var visible = String(thtml)
             .replace(/<style[\s\S]*?<\/style>/gi, "")
             .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -1182,7 +1215,7 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
         var hasMedia = /<(img|hr|table|tbody|tr|td)\b/i.test(thtml);
         if (!visible && !hasMedia) {
             job.set("status", "failed");
-            job.set("lastError", "template is empty - refusing to apply it (it would clear every signature)");
+            job.set("lastError", "signature is empty - refusing to apply it (it would clear every signature)");
             job.set("finishedAt", new Date());
             job.set("lockedAt", null);
             $app.save(job);

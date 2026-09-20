@@ -555,3 +555,26 @@ Shared classes in `styles/index.css` (`.gws-page-head`, `.gws-panel`, `.gws-row`
 sidebar grouped into **Users / Signatures / Settings**. Deliberately CSS-only:
 Tailwind and DaisyUI load from CDNs with **no build step**, so `sm:`/`lg:`
 prefixes do not work — anything responsive is a plain media query.
+
+---
+
+## Defect 14 — the recipient picker was unclickable from the schedule editor
+
+The schedule editor opens the shared recipient picker as a nested dialog. Both
+were `fixed inset-0 z-50`, and **at equal z-index the element later in the DOM
+wins** — the editor comes after the picker, so it painted over it. The picker was
+visible (its container was not `hidden`) but nothing in it could be clicked.
+
+Fixed with an explicit ladder in `styles/index.css`, lowest first:
+
+```css
+#schedule-editor { z-index: 100; }
+#audience-overlay { z-index: 120; }
+#modal-overlay   { z-index: 130; }
+```
+
+**Why the test suite missed it:** every assertion checked a `hidden` class. An
+element can be un-hidden and still be underneath something. The check that
+catches this is `document.elementFromPoint(x, y)` at the place you would click,
+asserting which element owns that point — now in `test_overlay_stack.py`, along
+with a real click on a control inside the picker.

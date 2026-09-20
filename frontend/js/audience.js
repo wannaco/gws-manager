@@ -15,7 +15,16 @@ window._aud = {
     ouTree: null,
 };
 
-function openAudiencePanel() {
+// The overlay is reused by the schedule editor as well as bulk apply. `mode`
+// decides what "Use these recipients" writes to, so the OU tree, group picker,
+// live count and preview are shared instead of duplicated.
+window._audMode = 'bulk';
+
+function openAudiencePanel(mode) {
+    window._audMode = mode || 'bulk';
+    var applyBtn = $('aud-apply');
+    if (applyBtn) applyBtn.textContent = (window._audMode === 'schedule')
+        ? 'Use these recipients' : 'Use these recipients';
     $('audience-overlay').classList.remove('hidden');
     $('aud-include-sub').checked = !!window._aud.includeSubOUs;
     $('aud-query').value = $('aud-query').value || '';
@@ -174,6 +183,16 @@ function toggleAudiencePreview() {
 }
 
 function applyAudience() {
+    if (window._audMode === 'schedule') {
+        window._scheduleAudience = {
+            selector: audienceSelector(),
+            emails: window._aud.emails.slice(),
+            count: window._aud.count,
+        };
+        if (typeof onScheduleAudiencePicked === 'function') onScheduleAudiencePicked();
+        closeAudiencePanel();
+        return;
+    }
     window._bulkRecipients = window._aud.emails.slice();
     updateAudienceSummary();
     closeAudiencePanel();
@@ -190,9 +209,10 @@ function clearAudience() {
 function updateAudienceSummary() {
     const n = (window._bulkRecipients || []).length;
     const box = $('audience-summary');
+    var applyBtn = $('btn-bulk-apply');
     if (!n) {
         box.classList.add('hidden');
-        $('btn-bulk-apply').disabled = true;
+        if (applyBtn) applyBtn.disabled = true;
         return;
     }
     box.classList.remove('hidden');
@@ -203,7 +223,7 @@ function updateAudienceSummary() {
     if (($('aud-query').value || '').trim()) parts.push(`text “${$('aud-query').value.trim()}”`);
     if (window._aud.excludes.length) parts.push(`${window._aud.excludes.length} excluded`);
     $('audience-desc-line').textContent = parts.length ? parts.join(' · ') + ' — direct group members only' : '';
-    $('btn-bulk-apply').disabled = false;
+    if (applyBtn) applyBtn.disabled = false;
 }
 
 // ── job progress ─────────────────────────────────────────────────────────────

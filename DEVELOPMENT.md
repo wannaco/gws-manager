@@ -356,6 +356,9 @@ gws-manager/
 | GET | `/api/gws/get-tenant` | Get tenant config (requires auth) |
 | GET | `/gws/bulk/jobs` | List bulk jobs (`limit` max 100, `offset`) |
 | GET | `/gws/bulk/failures` | Paged failures for one job (`limit` max 500) |
+| GET | `/gws/bulk/schedules` | List schedules; `?id=` returns one *with* its html |
+| POST | `/gws/bulk/schedules` | create \| update \| delete \| toggle \| runNow |
+| GET | `/gws/bulk/schedule-runs` | Recent jobs produced by one schedule |
 | GET | `/api/gws/users` | List GWS users (requires auth + tenant config) |
 
 ### Login Flow

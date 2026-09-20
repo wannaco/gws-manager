@@ -51,9 +51,12 @@
   <!-- Bulk Signature section (audience builder + job progress) -->
   <!-- Bulk Signature section -->
   <div id="section-sig-bulk" class="hidden fade-in">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-      <h2 class="text-xl font-bold">Signature Bulk Apply</h2>
-      <button class="btn btn-outline btn-sm" onclick="openAudiencePanel()">🎯 Choose recipients</button>
+    <div class="gws-page-head">
+      <div>
+        <h2 class="gws-h2">Signature bulk apply</h2>
+        <p class="gws-sub">Build a signature, choose recipients, then apply. Runs in the background.</p>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openAudiencePanel()">🎯 Choose recipients</button>
     </div>
 
     <!-- ── Audience summary (filled by audience.js) ───────────────────── -->
@@ -178,14 +181,14 @@
   <!-- Settings section -->
   <!-- ── Bulk Jobs: its own page ────────────────────────────── -->
   <div id="section-bulk-jobs" class="hidden fade-in">
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-      <h2 class="text-xl font-bold">Bulk Jobs</h2>
+    <div class="gws-page-head">
+      <div>
+        <h2 class="gws-h2">Bulk jobs</h2>
+        <p class="gws-sub">Every apply run, newest first. A run is picked up once a minute, so
+        progress updates on that cadence. You can leave this page — the job keeps going.</p>
+      </div>
       <button class="btn btn-outline btn-sm" onclick="loadBulkJobs()">Refresh</button>
     </div>
-    <p class="text-xs opacity-60 mb-4">
-      Every apply run, newest first. A run is picked up once a minute, so progress
-      updates on that cadence. You can leave this page — the job keeps going.
-    </p>
 
     <div id="bulk-jobs-list" class="text-xs">
       <div class="opacity-60 py-2">Loading…</div>
@@ -199,6 +202,131 @@
       </div>
       <div class="max-h-60 overflow-y-auto border border-base-300 rounded p-2 text-xs font-mono"
            id="bulk-job-failures-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Signatures: schedules ─────────────────────────────────────────────── -->
+  <div id="section-schedules" class="hidden fade-in">
+    <div class="gws-page-head">
+      <div>
+        <h2 class="gws-h2">Scheduled signatures</h2>
+        <p class="gws-sub">Apply a signature automatically on a schedule. Runs appear in Bulk Jobs.</p>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openScheduleEditor()">+ New schedule</button>
+    </div>
+
+    <div id="schedules-list" class="gws-stack"></div>
+
+    <div id="schedule-runs" class="gws-panel hidden mt-4">
+      <div class="flex items-center justify-between mb-2 gap-2">
+        <span class="text-sm font-semibold" id="schedule-runs-title"></span>
+        <button class="btn btn-xs btn-ghost"
+                onclick="document.getElementById('schedule-runs').classList.add('hidden')">Hide</button>
+      </div>
+      <div id="schedule-runs-list" class="gws-stack"></div>
+    </div>
+  </div>
+
+  <!-- ── Schedule editor overlay ───────────────────────────────────────────── -->
+  <div id="schedule-editor" class="hidden fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 overflow-y-auto">
+    <div class="bg-base-100 rounded-box shadow-2xl w-full max-w-3xl my-6 fade-in">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-4">
+          <h3 class="font-bold text-lg" id="sch-editor-title">New schedule</h3>
+          <button class="btn btn-sm btn-ghost" onclick="closeScheduleEditor()">✕</button>
+        </div>
+
+        <div id="sch-error" class="alert alert-error text-sm mb-4 hidden"></div>
+
+        <div class="gws-field">
+          <label class="gws-label">Title</label>
+          <input id="sch-title" type="text" class="input input-bordered w-full" placeholder="e.g. Monthly signature refresh">
+        </div>
+        <div class="gws-field">
+          <label class="gws-label">Description <span class="opacity-50">(optional)</span></label>
+          <input id="sch-description" type="text" class="input input-bordered w-full" placeholder="What this is for">
+        </div>
+
+        <div class="gws-hr"></div>
+
+        <div class="gws-field">
+          <label class="gws-label">Who it applies to</label>
+          <div class="flex items-center gap-3">
+            <button class="btn btn-outline btn-sm" onclick="openAudiencePanel('schedule')">🎯 Choose recipients</button>
+            <span class="text-sm opacity-60" id="sch-audience-label">No recipients selected</span>
+          </div>
+        </div>
+
+        <div class="gws-field">
+          <label class="gws-label">Signature</label>
+          <select id="sch-template" class="select select-bordered w-full mb-2"></select>
+          <div class="text-xs opacity-60 mb-2">…or build one here (used when no saved template is chosen):</div>
+          <div id="sch-editor-html" class="border border-base-300 rounded-lg overflow-hidden min-h-[220px]"></div>
+        </div>
+
+        <div class="gws-hr"></div>
+
+        <div class="gws-field">
+          <label class="gws-label">When</label>
+          <select id="sch-freq" class="select select-bordered w-full" onchange="_setRuleFields()">
+            <option value="daily">Every day</option>
+            <option value="weekly">Certain days of the week</option>
+            <option value="monthly">Monthly</option>
+            <option value="interval">At a regular interval</option>
+            <option value="once">Once, on a specific date</option>
+          </select>
+        </div>
+
+        <div class="gws-grid-2">
+          <div class="gws-field" id="sch-time-row">
+            <label class="gws-label">Time</label>
+            <input id="sch-time" type="time" step="60" class="input input-bordered w-full" value="09:00" onchange="_previewNextRun()">
+          </div>
+          <div class="gws-field" id="sch-dom-row">
+            <label class="gws-label">Day of month</label>
+            <select id="sch-dom" class="select select-bordered w-full" onchange="_previewNextRun()"></select>
+          </div>
+          <div class="gws-field" id="sch-interval-row">
+            <label class="gws-label">Every</label>
+            <select id="sch-interval" class="select select-bordered w-full" onchange="_previewNextRun()">
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="120">2 hours</option>
+              <option value="360">6 hours</option>
+              <option value="720">12 hours</option>
+              <option value="1440">24 hours</option>
+            </select>
+          </div>
+          <div class="gws-field" id="sch-once-row">
+            <label class="gws-label">Date and time</label>
+            <input id="sch-once" type="datetime-local" class="input input-bordered w-full" onchange="_previewNextRun()">
+          </div>
+        </div>
+
+        <div class="gws-field" id="sch-weekdays-row">
+          <label class="gws-label">Days</label>
+          <div class="flex gap-1 flex-wrap">
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="1" onchange="_previewNextRun()"> Mon</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="2" onchange="_previewNextRun()"> Tue</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="3" onchange="_previewNextRun()"> Wed</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="4" onchange="_previewNextRun()"> Thu</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="5" onchange="_previewNextRun()"> Fri</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="6" onchange="_previewNextRun()"> Sat</label>
+            <label class="gws-daychip"><input type="checkbox" class="sch-day" value="0" onchange="_previewNextRun()"> Sun</label>
+          </div>
+        </div>
+
+        <div class="gws-note">
+          <div id="sch-preview" class="text-sm font-medium"></div>
+          <div class="text-xs opacity-60 mt-1">Times are in <span id="sch-tz-note">local</span>.</div>
+        </div>
+
+        <div class="modal-action">
+          <button class="btn" onclick="closeScheduleEditor()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveSchedule()">Save schedule</button>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -464,3 +464,94 @@ per-job diagnostics.
 | UI split (sidebar, pages, delete buttons, per-user tab) | 22/22 |
 | send-as end-to-end | 5/5 |
 | full bulk regression | 22/22 |
+
+---
+
+# Addendum 5 — scheduled applies
+
+## What it does
+
+A schedule applies a signature on a recurrence: **daily**, **weekly** (chosen
+days), **monthly** (chosen day), **once** at a specific date/time, or **every N
+minutes**. Each schedule has a title, an optional description, an audience, a
+signature, and execution counters.
+
+## Design: a schedule makes a job, it does not apply anything itself
+
+`gws-scheduler` (a minute tick) turns a due schedule into a normal `bulkJobs`
+record. The existing `gws-bulk-worker` then drains it. So **batching, per-user
+progress, retry with backoff, resume-after-restart, the dry-run guard and the
+Bulk Jobs view are all reused** rather than reimplemented. A schedule is a
+trigger plus a record of how it went.
+
+Two behaviours worth knowing:
+
+* A schedule will **not** queue a new job while its previous job is still
+  running (`lastStatus: "skipped"`, `previous run is still in progress`).
+  Otherwise a long run on a one-minute cadence would pile up jobs behind it.
+* Several schedules due in the same minute queue together, but the worker
+  processes **one job per tick** — so they apply one after another, roughly a
+  minute apart, not simultaneously. That is deliberate: concurrent runs would
+  double the load on the same Google quota.
+
+## Execution counters
+
+Per schedule: `runCount`, `successRuns`, `failedRuns`, `appliedUsers`,
+`failedUsers`, plus `lastStatus` / `lastError` / `lastJobId` / `lastRecipients`.
+The worker updates them when a job finishes, so the counts reflect what actually
+happened to mailboxes, not merely that a job was queued. Each schedule also has
+a **History** panel listing its recent runs.
+
+## ⚠️ Timezone: honest limitation
+
+The JSVM has **no `Intl`**, so IANA zones cannot be resolved server-side. A
+schedule stores the **UTC offset the browser reported** (`tzOffsetMinutes`) and
+all recurrence maths is done in `local = utc + offset`. `timezone` is stored for
+display only.
+
+* Exact for zones **without** DST (including the configured one, UTC-06:00).
+* An hour out, in season, for zones **with** DST.
+
+This is stated in the UI (the editor shows the resolved offset) and here, rather
+than being hidden. Fixing it properly means resolving the zone on the client and
+sending a concrete UTC instant per occurrence — a larger change.
+
+## Recurrence is computed in ONE place
+
+`nextRunAfter()` in `lib/helpers.js` is used by the create/update route, the
+cron, and (for preview) the UI. The UI's preview is a mirror, and the server
+remains the authority — but there is only one implementation of the rule, since
+every defect this session came from logic existing twice and being fixed once.
+
+## Three platform traps hit while building this
+
+1. **`{:placeholder}` supplies its own quoting.** `scheduleId = "{:sid}"` throws
+   `invalid filter expression`; `scheduleId = {:sid}` is correct.
+2. **An unset PocketBase date field is a truthy Go zero-time object.** It
+   stringifies to `""` and `new Date(it).getTime()` is `NaN`, so
+   `field ? use(field) : fallback` picks the wrong branch and poisons the maths
+   with NaN. Always go through `dateMs()` — 0 means "not set".
+3. **`asArray` classified by VALUE and that was wrong.** `[1,3,5]` (weekdays)
+   satisfies `looksLikeByteSlice` because its elements are integers 0–255, so the
+   weekday list decoded to `[]` and weekly schedules silently ran Mon–Fri. A byte
+   slice and an array of small integers are **indistinguishable by value**;
+   `asArray` now attempts the string interpretation first and accepts it only if
+   it really parses. `looksLikeByteSlice` is now diagnostic only.
+
+## Verified
+
+| Suite | Result |
+|---|---|
+| recurrence unit (parse, daily, weekly, monthly incl. the 31st clamping to Feb 28, once, interval, offsets, garbage) | 38/38 |
+| scheduler end to end (CRUD, validation, toggle, runNow, cron firing by itself, empty-audience skip, delete, counters) | 26/26 |
+| Schedules UI (grouped sidebar, page, editor, field visibility per frequency, preview, validation, audience picker, save, history) | 32/32 |
+| bulk regression (after the asArray change) | 22/22 |
+| inline html / template delete | 12/12 |
+
+## UI consistency pass
+
+Shared classes in `styles/index.css` (`.gws-page-head`, `.gws-panel`, `.gws-row`,
+`.gws-field`, `.gws-label`, `.gws-daychip`, `.gws-note`, `.gws-nav-head`), and the
+sidebar grouped into **Users / Signatures / Settings**. Deliberately CSS-only:
+Tailwind and DaisyUI load from CDNs with **no build step**, so `sm:`/`lg:`
+prefixes do not work — anything responsive is a plain media query.

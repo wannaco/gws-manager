@@ -913,63 +913,14 @@ routerAdd("POST", "/gws/audience/resolve", (e) => {
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var b = JSON.parse(toString(e.request.body));
     try {
-        var emails = {}, order = [];
-        function add(em) {
-            if (!em) return;
-            var k = String(em).toLowerCase();
-            if (!emails[k]) { emails[k] = true; order.push(em); }
-        }
-        // 1. Org units (from cache)
-        var ous = b.orgUnits || [];
-        if (ous.length) {
-            var parts = [];
-            for (var i = 0; i < ous.length; i++) {
-                var ou = ous[i];
-                if (b.includeSubOUs && ou !== "/") {
-                    parts.push('(orgUnitPath = "' + String(ou).replace(/"/g, '\\"') + '" || orgUnitPath ~ "' + String(ou).replace(/"/g, '\\"') + '/")');
-                } else {
-                    parts.push('orgUnitPath = "' + String(ou).replace(/"/g, '\\"') + '"');
-                }
-            }
-            var recs = $app.findRecordsByFilter("domainUsers", parts.join(" || "), "+primaryEmail", 0, 0);
-            for (var ri = 0; ri < recs.length; ri++) add(recs[ri].get("primaryEmail"));
-        }
-        // 2. Groups (Directory API, direct members only)
-        var groups = b.groups || [];
-        if (groups.length) {
-            var sa = h.decryptSAKey(t); if (!sa) { e.json(400, { error: "no_service_account" }); return; }
-            var ae = t.get("adminEmail") || "";
-            for (var gi = 0; gi < groups.length; gi++) {
-                var ge = groups[gi], pt = "", pages = 0;
-                do {
-                    var gurl = "https://admin.googleapis.com/admin/directory/v1/groups/" + encodeURIComponent(ge) + "/members?maxResults=200";
-                    if (pt) gurl += "&pageToken=" + encodeURIComponent(pt);
-                    var gr = h.googleApiCall(sa, ae, ["https://www.googleapis.com/auth/admin.directory.group.readonly"], gurl);
-                    var mb = gr.members || [];
-                    for (var mi = 0; mi < mb.length; mi++) if (mb[mi].type === "USER" && mb[mi].email) add(mb[mi].email);
-                    pt = gr.nextPageToken || ""; pages++;
-                } while (pt && pages < 100);
-            }
-        }
-        // 3. Free-text query (only meaningful on its own or as a union)
-        if (b.query) {
-            var qq = String(b.query).replace(/"/g, '\\"');
-            var qr = $app.findRecordsByFilter("domainUsers", '(name ~ "' + qq + '" || primaryEmail ~ "' + qq + '")', "+primaryEmail", 0, 0);
-            for (var qi = 0; qi < qr.length; qi++) add(qr[qi].get("primaryEmail"));
-        }
-        // 4. Explicit manual picks
-        var manual = b.manual || [];
-        for (var mn = 0; mn < manual.length; mn++) add(manual[mn]);
-        // 5. Exclusions
-        var ex = {};
-        var exclusions = b.exclude || [];
-        for (var ei = 0; ei < exclusions.length; ei++) ex[String(exclusions[ei]).toLowerCase()] = true;
-        var out = [];
-        for (var oi = 0; oi < order.length; oi++) {
-            if (!ex[String(order[oi]).toLowerCase()]) out.push(order[oi]);
-        }
-        e.json(200, { ok: true, emails: out, count: out.length, nestedMembersExpanded: false });
-    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+        // One implementation, shared with the scheduler. This route used to hold
+        // its own copy, which is how the same logic ends up fixed in one place.
+        var emails = h.resolveAudience(b, t);
+        e.json(200, { ok: true, emails: emails, count: emails.length, nestedMembersExpanded: false });
+    } catch (err) {
+        if (err && err.message === "NO_SERVICE_ACCOUNT") { e.json(400, { error: "no_service_account" }); return; }
+        e.json(500, { error: "internal_error", message: err.message });
+    }
 });
 
 // Create a bulk job. Returns immediately; the cron worker does the work.
@@ -1081,6 +1032,109 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
 });
 
+
+//
+// Once a minute: turn any DUE schedule into a bulkJob. The existing worker then
+// drains it, so batching, per-user progress, retry/backoff, resume-after-restart
+// and the jobs view are all reused rather than reimplemented.
+//
+// Two behaviours worth knowing:
+//   * A schedule will NOT queue a new job while its previous job is still
+//     running. Otherwise a long run on a one-minute cadence would pile up
+//     hundreds of jobs behind it.
+//   * If several schedules fall due in the same minute they queue together, but
+//     the worker processes ONE job per tick -- so they apply one after another,
+//     roughly a minute apart, not simultaneously. That is deliberate: concurrent
+//     runs would double the load on the same Google quota.
+cronAdd("gws-scheduler", "* * * * *", () => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    var now = Date.now();
+    try {
+        var due = $app.findRecordsByFilter("bulkSchedules",
+            'enabled = true && nextRunAt != null && nextRunAt <= {:now}',
+            "+nextRunAt", 5, 0, { now: new Date(now) });
+
+        for (var i = 0; i < due.length; i++) {
+            var s = due[i];
+            var srec = { freq: s.get("freq"), time: s.get("time"),
+                weekdays: h.asArray(s.get("weekdays")), dayOfMonth: s.get("dayOfMonth"),
+                intervalMinutes: s.get("intervalMinutes"), startsAt: s.get("startsAt"),
+                lastRunAt: s.get("lastRunAt"), tzOffsetMinutes: s.get("tzOffsetMinutes") };
+
+            // advance the clock FIRST, so a failure below cannot leave a schedule
+            // stuck in the past firing on every single tick
+            var nxt = h.nextRunAfter(srec, now);
+            s.set("nextRunAt", nxt ? new Date(nxt) : null);
+            s.set("lastRunAt", new Date(now));
+            s.set("runCount", (s.get("runCount") || 0) + 1);
+
+            try {
+                // skip if this schedule's previous job is still going
+                var stillRunning = $app.findRecordsByFilter("bulkJobs",
+                    'scheduleId = {:sid} && (status = "running" || status = "queued")',
+                    "", 1, 0, { sid: s.id });
+                if (stillRunning && stillRunning.length) {
+                    s.set("lastStatus", "skipped");
+                    s.set("lastError", "previous run is still in progress");
+                    $app.save(s);
+                    continue;
+                }
+
+                var owner = null;
+                try { owner = $app.findRecordById("users", s.get("createdBy")); } catch (_) {}
+                if (!owner) {
+                    s.set("lastStatus", "error");
+                    s.set("lastError", "owner user no longer exists");
+                    s.set("enabled", false);
+                    $app.save(s);
+                    continue;
+                }
+
+                var emails = h.resolveAudience(h.asObject(s.get("selector")), owner);
+                if (!emails.length) {
+                    s.set("lastStatus", "skipped");
+                    s.set("lastError", "audience resolved to 0 recipients");
+                    s.set("lastRecipients", 0);
+                    $app.save(s);
+                    continue;
+                }
+
+                var jobColl = $app.findCollectionByNameOrId("bulkJobs");
+                var job = new Record(jobColl);
+                job.set("status", "running");
+                job.set("selector", h.asObject(s.get("selector")));
+                job.set("emails", emails);
+                job.set("total", emails.length);
+                job.set("done", 0);
+                job.set("failed", []);
+                job.set("chunkSize", 25);
+                job.set("dryRun", false);
+                job.set("scheduleId", s.id);
+                job.set("createdBy", s.get("createdBy"));
+                job.set("startedAt", new Date());
+                var jh = h.asString(s.get("htmlOverride"));
+                if (jh.trim()) job.set("htmlOverride", jh);
+                if (s.get("templateId")) job.set("templateId", s.get("templateId"));
+                $app.save(job);
+
+                s.set("lastJobId", job.id);
+                s.set("lastStatus", "queued");
+                s.set("lastError", "");
+                s.set("lastRecipients", emails.length);
+                $app.save(s);
+                h.auditLog(s.get("createdBy"), "schedule.fire", s.get("title") || s.id,
+                    { scheduleId: s.id, jobId: job.id, recipients: emails.length });
+            } catch (perr) {
+                s.set("lastStatus", "error");
+                s.set("lastError", String((perr && perr.message) || perr));
+                $app.save(s);
+            }
+        }
+    } catch (err) {
+        console.log("gws-scheduler error: " + ((err && err.message) || err));
+    }
+});
+
 // Bulk worker.
 //
 // Design notes, all of which exist because of large domains:
@@ -1122,14 +1176,12 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
         var running = $app.findRecordsByFilter("bulkJobs", 'status = "running"', "+startedAt", 50, 0);
         if (!running || !running.length) return;
 
+        // dateMs() returns 0 for an unset date field -- an unset date is a truthy
+        // Go zero-time object, so `if (!held)` would NOT catch it. See dateMs().
         var isFree = function (cand) {
-            var held = cand.get("lockedAt");
+            var held = h.dateMs(cand.get("lockedAt"));
             if (!held) return true;
-            var v = String(held);
-            // a zero/blank date means "not locked"
-            if (!v || v.indexOf("0001-01-01") === 0) return true;
-            var ageMs = Date.now() - new Date(held).getTime();
-            if (isNaN(ageMs)) return true;
+            var ageMs = Date.now() - held;
             return ageMs < 0 || ageMs >= LOCK_MS;
         };
 
@@ -1219,6 +1271,15 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
             job.set("finishedAt", new Date());
             job.set("lockedAt", null);
             $app.save(job);
+            if (job.get("scheduleId")) {
+                try {
+                    var se = $app.findRecordById("bulkSchedules", job.get("scheduleId"));
+                    se.set("lastStatus", "error");
+                    se.set("lastError", "signature is empty");
+                    se.set("failedRuns", (se.get("failedRuns") || 0) + 1);
+                    $app.save(se);
+                } catch (_) {}
+            }
             return;
         }
         var sc = ["https://www.googleapis.com/auth/gmail.settings.basic",
@@ -1309,6 +1370,25 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
         if (i >= emails.length) {
             job.set("status", failed.length ? "failed" : "done");
             job.set("finishedAt", new Date());
+            // tell the schedule how its run went
+            if (job.get("scheduleId")) {
+                try {
+                    var sched = $app.findRecordById("bulkSchedules", job.get("scheduleId"));
+                    var applied = i - failed.length;
+                    sched.set("appliedUsers", (sched.get("appliedUsers") || 0) + applied);
+                    sched.set("failedUsers", (sched.get("failedUsers") || 0) + failed.length);
+                    if (failed.length) {
+                        sched.set("failedRuns", (sched.get("failedRuns") || 0) + 1);
+                        sched.set("lastStatus", "failed");
+                        sched.set("lastError", failed.length + " of " + i + " failed");
+                    } else {
+                        sched.set("successRuns", (sched.get("successRuns") || 0) + 1);
+                        sched.set("lastStatus", "success");
+                        sched.set("lastError", "");
+                    }
+                    $app.save(sched);
+                } catch (_) {}
+            }
         } else if (i === doneAtStart) {
             // No progress this tick. A job that can never advance must not hold
             // the queue, so count consecutive stalls and fail it.
@@ -1331,6 +1411,194 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
             if (job) { job.set("lockedAt", null); job.set("lastError", String(err.message || err)); $app.save(job); }
         } catch (_) {}
     }
+});
+
+// ── Scheduled applies ────────────────────────────────────────────────────────
+//
+// A schedule holds what to apply (signature + audience selector) and when
+// (recurrence rule). The gws-scheduler cron turns a due schedule into a bulkJob
+// and the existing worker drains it, so batching/retry/resume/progress are all
+// reused. Recurrence maths lives in lib/helpers.js (nextRunAfter) so the UI and
+// the cron cannot disagree about when something is next due.
+
+
+routerAdd("GET", "/gws/bulk/schedules", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var oneId = e.request.url.query().get("id");
+    try {
+        if (oneId) {
+            // single schedule, WITH its stored html -- the list payload omits it
+            // because it can be large.
+            var one = $app.findRecordById("bulkSchedules", oneId);
+            var payload = h.schedulePayload(one);
+            payload.html = h.asString(one.get("htmlOverride"));
+            e.json(200, { ok: true, schedule: payload }); return;
+        }
+        var recs = $app.findRecordsByFilter("bulkSchedules", "", "+title", 200, 0);
+        var out = [];
+        for (var i = 0; i < recs.length; i++) out.push(h.schedulePayload(recs[i]));
+        e.json(200, { ok: true, schedules: out, count: out.length });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// create | update | delete | toggle | runNow
+routerAdd("POST", "/gws/bulk/schedules", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var t = h.getUserConfig(e, u.id); if (!t) return;
+    var b = JSON.parse(toString(e.request.body));
+    var act = b.action || "create";
+    try {
+        var coll = $app.findCollectionByNameOrId("bulkSchedules");
+
+        if (act === "delete") {
+            if (!b.id) { e.json(400, { error: "id required" }); return; }
+            var del = $app.findRecordById("bulkSchedules", b.id);
+            $app.delete(del);
+            h.auditLog(u.id, "schedule.delete", u.email || u.id, { id: b.id, title: del.get("title") });
+            e.json(200, { ok: true, action: "deleted", id: b.id }); return;
+        }
+
+        var rec;
+        if (b.id) {
+            rec = $app.findRecordById("bulkSchedules", b.id);
+        } else {
+            rec = new Record(coll);
+            rec.set("createdBy", u.id);
+            rec.set("runCount", 0);
+            rec.set("successRuns", 0);
+            rec.set("failedRuns", 0);
+            rec.set("appliedUsers", 0);
+            rec.set("failedUsers", 0);
+            rec.set("enabled", true);
+        }
+
+        if (act === "toggle") {
+            rec.set("enabled", !rec.get("enabled"));
+            $app.save(rec);
+            e.json(200, { ok: true, action: "toggled", schedule: h.schedulePayload(rec) }); return;
+        }
+
+        if (act === "create" || act === "update") {
+            if (!b.title || !String(b.title).trim()) { e.json(400, { error: "title required" }); return; }
+            var html = (typeof b.html === "string") ? b.html : "";
+            var hasHtml = !!html.trim();
+            var tid = b.templateId || "";
+            if (!hasHtml && !tid) {
+                e.json(400, { error: "a signature is required (editor content or a saved template)" }); return;
+            }
+            if (tid) {
+                try { $app.findRecordById("signatureTemplates", tid); }
+                catch (_) { e.json(404, { error: "template_not_found" }); return; }
+            }
+            var sel = b.selector || {};
+            if (!h.asArray(sel.orgUnits).length && !h.asArray(sel.groups).length &&
+                !h.asArray(sel.manual).length && !String(sel.query || "").trim()) {
+                e.json(400, { error: "an audience is required (organisational unit, group, filter or manual list)" }); return;
+            }
+
+            rec.set("title", String(b.title).trim());
+            rec.set("description", b.description || "");
+            rec.set("templateId", tid);
+            if (hasHtml) rec.set("htmlOverride", html);
+            rec.set("selector", sel);
+            rec.set("freq", b.freq || "daily");
+            rec.set("time", b.time || "09:00");
+            rec.set("weekdays", h.asArray(b.weekdays));
+            rec.set("dayOfMonth", b.dayOfMonth || 1);
+            rec.set("intervalMinutes", b.intervalMinutes || 60);
+            rec.set("tzOffsetMinutes", (typeof b.tzOffsetMinutes === "number") ? b.tzOffsetMinutes : 0);
+            rec.set("timezone", b.timezone || "");
+            if (b.startsAt) { try { rec.set("startsAt", new Date(b.startsAt)); } catch (_) {} }
+            if (typeof b.enabled === "boolean") rec.set("enabled", b.enabled);
+
+            // next run is computed from the rule that was just saved
+            var probe = {
+                freq: rec.get("freq"), time: rec.get("time"),
+                weekdays: h.asArray(rec.get("weekdays")),
+                dayOfMonth: rec.get("dayOfMonth"),
+                intervalMinutes: rec.get("intervalMinutes"),
+                startsAt: rec.get("startsAt"),
+                lastRunAt: rec.get("lastRunAt"),
+                tzOffsetMinutes: rec.get("tzOffsetMinutes")
+            };
+            var nxt = h.nextRunAfter(probe, Date.now());
+            rec.set("nextRunAt", nxt ? new Date(nxt) : null);
+
+            $app.save(rec);
+            h.auditLog(u.id, "schedule." + act, u.email || u.id,
+                { id: rec.id, title: rec.get("title"), freq: rec.get("freq"), time: rec.get("time") });
+            e.json(200, { ok: true, action: act, schedule: h.schedulePayload(rec) }); return;
+        }
+
+        if (act === "runNow") {
+            if (!b.id) { e.json(400, { error: "id required" }); return; }
+            rec = $app.findRecordById("bulkSchedules", b.id);
+            var emails = h.resolveAudience(h.asObject(rec.get("selector")), t);
+            if (!emails.length) { e.json(400, { error: "audience is empty", count: 0 }); return; }
+            var jobColl = $app.findCollectionByNameOrId("bulkJobs");
+            var job = new Record(jobColl);
+            job.set("status", "running");
+            job.set("selector", h.asObject(rec.get("selector")));
+            job.set("emails", emails);
+            job.set("total", emails.length);
+            job.set("done", 0);
+            job.set("failed", []);
+            job.set("chunkSize", 25);
+            job.set("dryRun", false);
+            job.set("scheduleId", rec.id);
+            job.set("createdBy", u.id);
+            job.set("startedAt", new Date());
+            var jh = h.asString(rec.get("htmlOverride"));
+            if (jh.trim()) job.set("htmlOverride", jh);
+            if (rec.get("templateId")) job.set("templateId", rec.get("templateId"));
+            $app.save(job);
+
+            rec.set("lastJobId", job.id);
+            rec.set("lastRunAt", new Date());
+            rec.set("lastStatus", "queued");
+            rec.set("lastRecipients", emails.length);
+            // a manual run is still an execution, so it counts
+            rec.set("runCount", (rec.get("runCount") || 0) + 1);
+            $app.save(rec);
+            h.auditLog(u.id, "schedule.runNow", u.email || u.id, { id: rec.id, title: rec.get("title"), jobId: job.id, total: emails.length });
+            e.json(200, { ok: true, action: "runNow", jobId: job.id, total: emails.length }); return;
+        }
+
+        e.json(400, { error: "unknown action" });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Recent jobs produced by one schedule, for its run history.
+routerAdd("GET", "/gws/bulk/schedule-runs", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var id = e.request.url.query().get("id");
+    if (!id) { e.json(400, { error: "id required" }); return; }
+    try {
+        var recs = $app.findRecordsByFilter("bulkJobs",
+            'scheduleId = "' + String(id).replace(/"/g, '\\"') + '"', "-startedAt", 20, 0);
+        var runs = [];
+        for (var i = 0; i < recs.length; i++) {
+            var r = recs[i];
+            var failed = h.asArray(r.get("failed"));
+            runs.push({
+                jobId: r.id,
+                status: r.get("status"),
+                total: r.get("total") || 0,
+                done: r.get("done") || 0,
+                failedCount: failed.length,
+                startedAt: r.get("startedAt"),
+                finishedAt: r.get("finishedAt") || null,
+                lastError: r.get("lastError") || ""
+            });
+        }
+        e.json(200, { ok: true, runs: runs, count: runs.length });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
 });
 
 // List recent bulk jobs.

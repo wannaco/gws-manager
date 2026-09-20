@@ -141,6 +141,9 @@ echo "  3. Add these OAuth scopes:"
 echo "     - https://www.googleapis.com/auth/gmail.settings.basic"
 echo "     - https://www.googleapis.com/auth/gmail.settings.sharing"
 echo "     - https://www.googleapis.com/auth/admin.directory.user.readonly"
+  # NOTE: the WRITE scope, needed to add send-as aliases. Easy to omit
+  # because admin.directory.user.readonly looks like it covers it -- it does not.
+  echo "     - https://www.googleapis.com/auth/admin.directory.user"
 echo "     - https://www.googleapis.com/auth/admin.directory.group.readonly"
 echo "     - https://www.googleapis.com/auth/calendar"
 echo ""

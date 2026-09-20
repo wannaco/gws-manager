@@ -181,9 +181,18 @@ apply the same way) and reach it through that.
 Override with `GWS_BIND` if you deliberately need direct exposure, e.g.
 `GWS_BIND=0.0.0.0:8090 ./start.sh`. Do not do that on an untrusted network.
 
-**First time?** Register with your Google Workspace domain email, then go to
-Settings and upload a service account JSON key (domain-wide delegation). The
-user sync populates your domain users.
+**First time?** Register with your Google Workspace domain email, then upload a
+service-account JSON key with domain-wide delegation in **Settings**. The user
+sync then populates your domain users.
+
+**Doing the Google side for the first time?** That is a separate setup on Google's
+side — a GCP project, three APIs, a service account, and six OAuth scopes
+authorised in the Admin Console. Full walkthrough, automated and manual:
+
+**→ [Connect Google Workspace](GOOGLE-WORKSPACE.md)**
+
+It is the step people get stuck on, and where a single missing scope makes one
+feature fail with no useful error.
 
 ## Environment variables
 

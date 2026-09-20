@@ -165,6 +165,7 @@ if [ "$ALL_GOOD" = true ]; then
     echo "    https://www.googleapis.com/auth/gmail.settings.basic"
     echo "    https://www.googleapis.com/auth/gmail.settings.sharing"
     echo "    https://www.googleapis.com/auth/admin.directory.user.readonly"
+    echo "    https://www.googleapis.com/auth/admin.directory.user"
     echo "    https://www.googleapis.com/auth/admin.directory.group.readonly"
     echo "    https://www.googleapis.com/auth/calendar"
 else

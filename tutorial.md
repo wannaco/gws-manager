@@ -63,8 +63,13 @@ echo "Client ID: $(gcloud iam service-accounts describe gws-admin-sa@$(gcloud co
    - `https://www.googleapis.com/auth/gmail.settings.basic`
    - `https://www.googleapis.com/auth/gmail.settings.sharing`
    - `https://www.googleapis.com/auth/admin.directory.user.readonly`
+   - `https://www.googleapis.com/auth/admin.directory.user`
    - `https://www.googleapis.com/auth/admin.directory.group.readonly`
    - `https://www.googleapis.com/auth/calendar`
+
+  > All six are required. `admin.directory.user` (without `.readonly`) is the
+  > **write** scope used when adding a send-as alias — omitting it makes that one
+  > feature fail with a 403 while everything else works.
 
 6. Click "Authorize"
 

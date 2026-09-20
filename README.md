@@ -367,6 +367,12 @@ silently produce wrong behaviour rather than errors — is in
 - **HTMX** — Dynamic component loading
 - **Go** — RS256 JWT signer sidecar
 
+## Credits
+
+Built with AI assistance.
+
+**Claude Certified Developer — Foundations** — [verify on Credly](https://www.credly.com/badges/124385dc-e672-4920-9008-58b5600ea471)
+
 ## License
 
 **PolyForm Internal Use License 1.0.0** — see [LICENSE](LICENSE). That is the

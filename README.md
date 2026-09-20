@@ -412,7 +412,7 @@ retry, and a dry run that renders every signature without calling Google.
 | | |
 |---|---|
 | ![Bulk jobs](docs/screenshots/07-bulk-jobs.png) | ![Settings](docs/screenshots/08-settings.png) |
-| **Bulk jobs** — every run, with progress and the Google throttling readout. | **Settings** — domain, service-account key, webhook, and the build you are running. |
+| **Bulk jobs** — every run, with progress and the Google throttling readout. | **Settings** — connect the domain, set the webhook, and read the build you are running. |
 
 > **Note on bulk:** bulk apply covers **signatures**. Delegation, forwarding,
 > filters, vacation and Calendar sharing are managed per user.

@@ -978,11 +978,16 @@ routerAdd("POST", "/gws/bulk/start", (e) => {
         rec.set("done", 0);
         rec.set("failed", []);
         rec.set("chunkSize", b.chunkSize || 25);
+        // A dry run resolves the audience and renders every signature, but does
+        // not call Gmail. This is the only way to see what a run WOULD do before
+        // letting it touch a production domain.
+        rec.set("dryRun", !!b.dryRun);
         rec.set("createdBy", u.id);
         rec.set("startedAt", new Date());
         $app.save(rec);
-        h.auditLog(u.id, "signature.bulkStart", u.email || u.id, { jobId: rec.id, total: list.length });
-        e.json(200, { ok: true, jobId: rec.id, total: list.length, chunkSize: rec.get("chunkSize") });
+        h.auditLog(u.id, "signature.bulkStart", u.email || u.id, { jobId: rec.id, total: list.length, dryRun: !!b.dryRun });
+        e.json(200, { ok: true, jobId: rec.id, total: list.length,
+            chunkSize: rec.get("chunkSize"), dryRun: !!b.dryRun });
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
 });
 
@@ -995,11 +1000,20 @@ routerAdd("GET", "/gws/bulk/status", (e) => {
     if (!id) { e.json(400, { error: "id required" }); return; }
     try {
         var rec = $app.findRecordById("bulkJobs", id);
-        var failed = rec.get("failed") || [];
+        var failed = h.asArray(rec.get("failed"));
         e.json(200, { ok: true, jobId: rec.id, status: rec.get("status"),
             total: rec.get("total") || 0, done: rec.get("done") || 0,
             failedCount: failed.length, failed: failed.slice(0, 100),
             startedAt: rec.get("startedAt"), finishedAt: rec.get("finishedAt"),
+            dryRun: !!rec.get("dryRun"),
+            lockedAt: rec.get("lockedAt") || null,
+            retries: rec.get("retries") || 0,
+            rateLimited: rec.get("rateLimited") || 0,
+            throttledMs: rec.get("throttledMs") || 0,
+            avgMsPerUser: rec.get("avgMsPerUser") || 0,
+            // rough estimate of remaining wall-clock time, for the UI
+            etaMs: (rec.get("avgMsPerUser") || 0) *
+                   Math.max(0, (rec.get("total") || 0) - (rec.get("done") || 0)),
             lastError: rec.get("lastError") || "" });
     } catch (err) { e.json(404, { error: "job_not_found" }); }
 });
@@ -1013,7 +1027,7 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
     if (!b.jobId) { e.json(400, { error: "jobId required" }); return; }
     try {
         var old = $app.findRecordById("bulkJobs", b.jobId);
-        var failed = old.get("failed") || [];
+        var failed = h.asArray(old.get("failed"));
         if (!failed.length) { e.json(400, { error: "nothing to retry" }); return; }
         var emails = failed.map(function(f) { return f.email; });
         var coll = $app.findCollectionByNameOrId("bulkJobs");
@@ -1026,6 +1040,7 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
         rec.set("done", 0);
         rec.set("failed", []);
         rec.set("chunkSize", old.get("chunkSize") || 25);
+        rec.set("dryRun", false);   // a retry always really applies
         rec.set("createdBy", u.id);
         rec.set("startedAt", new Date());
         $app.save(rec);
@@ -1033,38 +1048,101 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
 });
 
-// Worker: one chunk per tick, so a restart resumes instead of losing the job.
+// Bulk worker.
+//
+// Design notes, all of which exist because of large domains:
+//
+//  * TIME BUDGET, not a fixed chunk. The old version did exactly `chunkSize`
+//    users per minute, so throughput was capped at 25/min (= 33 hours for a
+//    50k-user domain) no matter how fast Google answered. This version keeps
+//    working until it has used its budget, so a fast domain finishes far
+//    sooner and a slow one simply does less per tick.
+//  * PROGRESS SAVED PER USER. A restart resumes on the exact user it stopped
+//    on, not at the start of the chunk.
+//  * OVERLAP LOCK. A tick that overruns its 60s slot used to be re-entered by
+//    the next tick, which would read a stale `done` and re-apply the same
+//    users. The job is now held for the duration of a tick.
+//  * RETRY WITH BACKOFF. 429/5xx are retried with exponential backoff + jitter
+//    (see lib/helpers.js). Previously any 429 was recorded as a permanent
+//    failure and never retried.
+//  * TOKEN REUSED ACROSS RETRIES. The OAuth token is fetched once per user, so
+//    retrying does not hammer the token endpoint, which is rate limited too.
 cronAdd("gws-bulk-worker", "* * * * *", () => {
+    var BUDGET_MS = 50000;   // stay well inside the 60s tick
+    var LOCK_MS = 240000;    // a crashed tick frees the job after 4 minutes
+    var h = require(__hooks + "/../lib/helpers.js");
+    var job = null;
     try {
-        var h = require(__hooks + "/../lib/helpers.js");
         var jobs = $app.findRecordsByFilter("bulkJobs", 'status = "running"', "+startedAt", 1, 0);
         if (!jobs || !jobs.length) return;
-        var job = jobs[0];
-        var emails = job.get("emails") || [];
+        job = jobs[0];
+
+        // --- overlap guard -------------------------------------------------
+        var held = job.get("lockedAt");
+        if (held) {
+            var ageMs = Date.now() - new Date(held).getTime();
+            if (ageMs >= 0 && ageMs < LOCK_MS) return;   // another tick is on it
+        }
+        job.set("lockedAt", new Date());
+        $app.save(job);
+
+        // MUST normalise: a json field can arrive as a JSON string, whose
+        // .length is the character count. See asArray() in lib/helpers.js.
+        var emails = h.asArray(job.get("emails"));
         var done = job.get("done") || 0;
-        var chunk = job.get("chunkSize") || 25;
-        var failed = job.get("failed") || [];
+        var failed = h.asArray(job.get("failed"));
+        var dryRun = !!job.get("dryRun");
+        var budget = job.get("maxPerTick") || 100000;   // hard safety cap
+        var retryOn5xx = !dryRun;                       // PATCH is idempotent
+
         if (done >= emails.length) {
             job.set("status", failed.length ? "failed" : "done");
             job.set("finishedAt", new Date());
+            job.set("lockedAt", null);
             $app.save(job);
             return;
         }
+
         // resolve config + template once per tick
         var ucfg = $app.findRecordById("users", job.get("createdBy"));
         var sa = null;
-        try { sa = h.decryptSAKey(ucfg); } catch (_) {}
-        if (!sa) { job.set("status", "failed"); job.set("lastError", "service account unavailable"); $app.save(job); return; }
-        var adminEmail = ucfg.get("adminEmail") || "";
+        if (!dryRun) {
+            // A dry run calls nothing, so it must not demand a service account —
+            // you should be able to preview an audience before wiring Google up.
+            try { sa = h.decryptSAKey(ucfg); } catch (_) {}
+            if (!sa) {
+                job.set("status", "failed");
+                job.set("lastError", "service account unavailable");
+                job.set("lockedAt", null);
+                $app.save(job);
+                return;
+            }
+        }
         var tmpl = $app.findRecordById("signatureTemplates", job.get("templateId"));
         var thtml = tmpl.get("html") || "";
-        var sc = ["https://www.googleapis.com/auth/gmail.settings.basic", "https://www.googleapis.com/auth/gmail.settings.sharing"];
-        var end = Math.min(done + chunk, emails.length);
-        for (var i = done; i < end; i++) {
+        var sc = ["https://www.googleapis.com/auth/gmail.settings.basic",
+                  "https://www.googleapis.com/auth/gmail.settings.sharing"];
+
+        var stats = {
+            retries: job.get("retries") || 0,
+            rateLimited: job.get("rateLimited") || 0,
+            throttledMs: job.get("throttledMs") || 0
+        };
+
+        var t0 = Date.now();
+        var processedThisTick = 0;
+        var i = done;
+
+        while (i < emails.length && processedThisTick < budget) {
+            if (Date.now() - t0 > BUDGET_MS) break;
+
             var email = emails[i];
+            var userStart = Date.now();
             try {
-                var cached = $app.findRecordsByFilter("domainUsers", 'primaryEmail="' + String(email).replace(/"/g, '\\"') + '"', "", 1, 0);
-                var uname = email, ufirst = "", ulast = "", utitle = "", udept = "", ucomp = "", uphone = "", uphoto = "";
+                var cached = $app.findRecordsByFilter("domainUsers",
+                    'primaryEmail="' + String(email).replace(/"/g, '\\"') + '"', "", 1, 0);
+                var uname = email, ufirst = "", ulast = "", utitle = "", udept = "",
+                    ucomp = "", uphone = "", uphoto = "";
                 if (cached && cached.length > 0) {
                     uname = cached[0].get("name") || email;
                     ufirst = cached[0].get("firstName") || "";
@@ -1089,20 +1167,51 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
                 html = html.replace(/<a[^>]*>\s*<\/a>/gi, '');
                 html = html.replace(/<(?:p|div|span)[^>]*>\s*<\/(?:p|div|span)>/gi, '');
                 html = html.replace(/^\s*$/gm, '');
-                h.googleApiCall(sa, email, sc, "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) + "/settings/sendAs/" + encodeURIComponent(email), "PATCH", { signature: html });
+
+                if (!dryRun) {
+                    // token once per user, reused by every retry of this call
+                    var token = h.googleAccessToken(sa, email, sc);
+                    h.googleApiRequest(token,
+                        "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) +
+                        "/settings/sendAs/" + encodeURIComponent(email),
+                        "PATCH", { signature: html }, { stats: stats, retryOn5xx: retryOn5xx });
+                }
             } catch (uer) {
-                failed.push({ email: email, error: String(uer.message || uer) });
+                var st = h.statusOf(uer);
+                failed.push({ email: email, error: String(uer.message || uer),
+                    status: st || 0, reason: uer.reason || "",
+                    at: new Date().toISOString() });
             }
+
+            i++;
+            processedThisTick++;
+            // --- save after EVERY user, so a restart resumes precisely here ---
+            job.set("done", i);
+            job.set("failed", failed);
+            job.set("retries", stats.retries);
+            job.set("rateLimited", stats.rateLimited);
+            job.set("throttledMs", stats.throttledMs);
+            var elapsed = Date.now() - userStart;
+            var prevAvg = job.get("avgMsPerUser") || 0;
+            var prevN = (i - done - 1);
+            job.set("avgMsPerUser", Math.round((prevAvg * prevN + elapsed) / Math.max(1, prevN + 1)));
+            $app.save(job);
         }
-        job.set("done", end);
+
+        job.set("done", i);
         job.set("failed", failed);
-        if (end >= emails.length) {
+        if (i >= emails.length) {
             job.set("status", failed.length ? "failed" : "done");
             job.set("finishedAt", new Date());
         }
+        job.set("lockedAt", null);
         $app.save(job);
     } catch (err) {
-        console.log("gws-bulk-worker error: " + err.message);
+        console.log("gws-bulk-worker error: " + (err && err.message ? err.message : err));
+        // never leave the job locked, or it stalls for LOCK_MS
+        try {
+            if (job) { job.set("lockedAt", null); job.set("lastError", String(err.message || err)); $app.save(job); }
+        } catch (_) {}
     }
 });
 

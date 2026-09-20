@@ -16,8 +16,10 @@ if exist "sidecar\signer.exe" (
 )
 
 REM Start PocketBase
-echo -^> Starting PocketBase on http://0.0.0.0:8090 ...
+REM Loopback by default: PocketBase serves plain HTTP, so 0.0.0.0 would put
+REM the admin UI on your network. Front it with a reverse proxy.
+echo -^> Starting PocketBase on http://127.0.0.1:8090 ...
 echo.
-pocketbase.exe serve --http=0.0.0.0:8090 --dir=data --hooksDir=hooks --migrationsDir=backend --publicDir=frontend
+pocketbase.exe serve --http=127.0.0.1:8090 --dir=data --hooksDir=hooks --migrationsDir=backend --publicDir=frontend
 
 pause

@@ -39,8 +39,41 @@ platform yourself:
 
 Do not omit `--dir`: PocketBase otherwise defaults to `pb_data/` next to the
 binary, so a bare `./pocketbase serve` silently creates a *second*, empty database.
-Run `docker compose up -d` and read `docker compose logs -f`; there is no systemd
-unit and no process manager to configure.
+
+There are two compose files, and they are not interchangeable:
+
+| | `docker-compose.yml` | `docker-compose.dev.yml` |
+|---|---|---|
+| Purpose | a server | local development |
+| Needs | `GWS_DOMAIN` + `ENCRYPTION_KEY` | nothing |
+| Serves | HTTPS 443 via Caddy | plain HTTP `127.0.0.1:8090` |
+| App port published | no | loopback only |
+
+### Building the image from a checkout
+
+The production compose **pulls** the published image — there is nothing to build
+for a normal install. To build from source, which is what you want while
+developing and is also permitted for your own internal use:
+
+```bash
+docker build -t gws-admin:local .
+# or run the production compose with its `build:` line uncommented:
+docker compose up -d --build
+```
+
+**Do not publish a built image to a registry others can pull from.** The licence
+permits modifying and running this internally; **distributing a built image is
+redistribution, which it does not permit.** CI publishes
+`ghcr.io/wannaco/gws-manager` from `main` — that is the copyright holder's, and it
+is the image users are told to run.
+
+**While developing, use the dev file** — the production one requires `GWS_DOMAIN`
+and `ENCRYPTION_KEY` and serves through Caddy on 443:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d     # binds 127.0.0.1:8090, no TLS
+docker compose -f docker-compose.dev.yml logs -f
+```
 
 ### ⚠️ frontend/ is published to the web
 
@@ -156,25 +189,107 @@ grep -c '</div>' frontend/index.html
 
 ---
 
-## PocketBase JSVM: two things that will bite you
+## PocketBase: what will bite you
 
-1. **`json` fields arrive as a byte slice, not an array.** `Array.isArray()`
-   returns **true** on it, so the usual guard does not help. `.length` is the
-   BYTE count and `[0]` is a NUMBER (the first character's code):
+Every item below was found by running the code, and **none of them throws** — they
+produce wrong behaviour that looks like success. All have helper functions in
+`lib/helpers.js`; use them instead of open-coding.
 
-   ```
-   record.get("emails")          ->  object, Array.isArray() === true
-   record.get("emails").length   ->  70        (bytes, not entries)
-   record.get("emails")[0]       ->  91        ('[' — a number)
-   ```
+### 1. `json` fields arrive as a byte slice, not an array
 
-   Looping that with `i < list.length` silently walks *characters* instead of
-   records — no exception, just wrong behaviour. Always normalise through
-   `asArray()` / `asString()` in `lib/helpers.js`.
+`Array.isArray()` returns **true** on it, so the usual guard does not help.
+`.length` is the BYTE count and `[0]` is a NUMBER (the first character's code):
 
-2. **`sleep(ms)` exists as a global function** (there is no `setTimeout`, and
-   no `$os.sleep`). It blocks the whole goja runtime synchronously, so it is
-   fine for backoff inside a worker but must never be used in a hot route.
+```
+record.get("emails")          ->  object, Array.isArray() === true
+record.get("emails").length   ->  70        (bytes, not entries)
+record.get("emails")[0]       ->  91        ('[' — a number)
+```
+
+Looping that with `i < list.length` silently walks *characters* instead of records.
+Normalise through **`asArray()`** / **`asString()`** / **`asObject()`**.
+
+### 2. …and you must NOT decide "is this a byte slice?" by looking at values
+
+A genuine `[1,3,5]` (weekday numbers!) also looks like a byte slice, because its
+elements are integers 0–255. Classifying by value made weekly schedules silently
+run Mon–Fri. `asArray()` therefore *attempts* the string interpretation and accepts
+it only if it actually parses to an array — it does not classify.
+
+### 3. An unset date field is a TRUTHY zero-time object
+
+Not `null`, not `""`. It is truthy, it stringifies to `""`, and
+`new Date(it).getTime()` is `NaN`:
+
+```
+lastRunAt = ""   typeof object   truthy = true   new Date() -> NaN
+```
+
+So the obvious `field ? use(field) : fallback` takes the **wrong branch** and
+poisons everything downstream with `NaN`. Use **`dateMs()`** — 0 means "not set".
+
+### 4. `{:placeholder}` supplies its own quoting
+
+```js
+findRecordsByFilter("bulkJobs", 'scheduleId = "{:sid}"', ...)   // THROWS
+findRecordsByFilter("bulkJobs", 'scheduleId = {:sid}',   ...)   // correct
+```
+
+Wrapping it in quotes produces `invalid filter expression: expected && or ||`.
+
+### 5. Module-level bindings are invisible inside handlers
+
+Each handler is evaluated in its own scope, so a module-level `var`/`function` in
+`main.pb.js` reads as *not defined* at request time and the route returns
+PocketBase's generic `400 {"message":"Something went wrong..."}`. Put shared code
+in `lib/helpers.js` and reach it through the required module.
+
+### 6. `sleep(ms)` is a global, and it blocks
+
+There is no `setTimeout` and no `$os.sleep`. It blocks the whole goja runtime
+synchronously — fine for backoff inside a cron worker, never in a hot route.
+
+### 7. There is no WebCrypto — `$security` is the only crypto primitive
+
+`crypto`, `crypto.getRandomValues`, `btoa`, `atob`, `TextEncoder` and
+`$app.newEncryptionCipher` **do not exist** (`Buffer` does). Use
+`$security.encrypt/decrypt`, which needs a 16/24/32-byte key, or
+`$security.sha256`.
+
+That key-length rule bites: `openssl rand -hex 32` produces **64 characters**, and
+`$security.encrypt` rejects it with `crypto/aes: invalid key size 64`. That is why
+`lib/helpers.js` derives `sha256(ENCRYPTION_KEY).slice(0, 32)` before calling it.
+
+### 8. Client-side: setting `.checked` in JS does not fire `change`
+
+Assigning `.checked = true` runs no handler, so state that depends on the handler
+silently does not apply. Call the handler explicitly.
+
+### 9. Client-side: dialogs stack by DOM order at equal `z-index`
+
+All three overlays were `z-50`, so the one **later in the DOM** painted on top —
+the recipient picker was visible but completely unclickable from the schedule
+editor. There is an explicit ladder in `styles/index.css`; keep new overlays on
+it. And note that "not `hidden`" is not the same as "reachable": assert with
+`document.elementFromPoint()`, not by checking a class.
+
+## Self-hosting: what the compose files guarantee
+
+If you change `docker-compose.yml`, `caddy/Caddyfile` or the `scripts/`, these
+properties are load-bearing — they are the difference between "HTTPS" and "HTTPS
+plus an exposed plaintext admin panel", which is what the previous version shipped:
+
+- the `gws` service uses **`expose`**, never `ports`. Publishing 8090 puts an
+  unencrypted admin UI on the host's network; Caddy reaches the container by
+  service name.
+- `ENCRYPTION_KEY` and `GWS_DOMAIN` use `:?` so **compose refuses to start**
+  without them. An empty key does not fail loudly — the app boots and stores the
+  service-account key in plaintext.
+- Verify a compose edit **without a daemon**: `docker compose config`. It catches
+  interpolation and shape errors. Note that `: ` inside a bare list item makes it
+  a YAML map — quote any `:?` message containing a colon.
+- Verify a Caddyfile with the real binary, matching the `caddy:2-alpine` version:
+  `caddy validate --config caddy/Caddyfile --adapter caddyfile`.
 
 ## Testing against a stand-in for Google
 
@@ -336,8 +451,11 @@ gws-manager/
 ├── test-drawer.mjs             # Playwright mobile drawer test
 ├── test-desktop.mjs            # Playwright desktop test
 ├── test-mobile-detailed.mjs    # Mobile test with diagnostics
+├── caddy/
+│   └── Caddyfile               # bundled HTTPS proxy (production compose)
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml          # production: TLS on, app NOT published on a port
+├── docker-compose.dev.yml      # local: no TLS, 127.0.0.1:8090 only
 └── package.json                # Node deps (playwright)
 
 # Not in the repo — created at runtime:
@@ -404,6 +522,7 @@ PB serves files directly from disk — no restart needed for static files. If yo
 ### "PocketBase hooks not loading"
 
 Restart PB — hooks are only evaluated at startup:
+
 ```bash
 docker compose restart
 ```

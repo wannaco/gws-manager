@@ -1,0 +1,46 @@
+# =============================================================================
+# GWS Manager — local development / evaluation
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   open http://127.0.0.1:8090
+#
+# This file is INTENTIONALLY separate from docker-compose.yml rather than a
+# profile, so there is no flag to remember and no chance of the production file
+# being started with the proxy disabled.
+#
+# It differs from production in exactly two ways:
+#
+#   * no TLS — PocketBase is served directly
+#   * the port is published on 127.0.0.1 ONLY, so it is reachable from this
+#     machine and from nothing else on the network
+#
+# Never expose this binding as 0.0.0.0. That would be an unencrypted admin panel
+# on your LAN; use docker-compose.yml for anything reachable.
+# =============================================================================
+
+services:
+  gws:
+    image: ${GWS_IMAGE:-gws-admin:local}
+    build: .
+    restart: unless-stopped
+
+    # LOOPBACK ONLY. Not "8090:8090" — that binds every interface.
+    ports:
+      - "127.0.0.1:8090:8090"
+
+    volumes:
+      - ./data:/app/data
+
+    environment:
+      # A throwaway value is fine locally. NEVER reuse a production key here:
+      # a different key against an existing ./data volume is not a reset, it just
+      # makes every stored service-account key unreadable.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-local-dev-only-not-for-production}
+      - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

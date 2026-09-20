@@ -843,6 +843,22 @@ routerAdd("POST", "/gws/webhook-config", (e) => {
 
 console.log("\u2705 GWS-Admin PocketBase hooks loaded");
 
+// Shout at boot if the encryption key is missing. Without it the app starts and
+// looks perfectly healthy, but encryptSAKey falls back to storing the Google
+// service-account key in PLAINTEXT -- a failure that is invisible until it
+// matters. Deliberately a warning, not a hard exit: an install that is already
+// running without a key must not be broken by an upgrade. Docker installs are
+// protected properly, by a required variable in docker-compose.yml.
+try {
+    if (!$os.getenv("ENCRYPTION_KEY")) {
+        console.error("**********************************************************************");
+        console.error("* ENCRYPTION_KEY IS NOT SET");
+        console.error("* The Google service-account key will be stored in PLAINTEXT.");
+        console.error("* Set ENCRYPTION_KEY before storing a key. See the README.");
+        console.error("**********************************************************************");
+    }
+} catch (_) {}
+
 // Disable browser caching for all static files served by PocketBase
 routerUse((e) => {
     try {

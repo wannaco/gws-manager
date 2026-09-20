@@ -1,50 +1,91 @@
-# ── GWS Admin — Docker Compose ──
-# Self-hosted: one instance = one Google Workspace domain.
+# =============================================================================
+# GWS Manager — Docker Compose (production)
 #
-#   1. cp .env.example .env   and set ENCRYPTION_KEY
-#   2. docker compose up -d
-#   3. open http://localhost:8090
+#   cp .env.example .env      # set GWS_DOMAIN and ENCRYPTION_KEY
+#   docker compose up -d      # pulls the published image; HTTPS via Caddy
 #
-# With the bundled HTTPS proxy:  docker compose --profile proxy up -d
+# Secure by default, and with no assumptions about the host:
 #
-# By default this builds the image from the current checkout, so a fresh clone
-# needs nothing but Docker (PocketBase and the signer are fetched/compiled
-# inside the build). To run a prebuilt image instead, set GWS_IMAGE to a
-# registry reference and log in first — see the README.
+#   * TLS is ON. Caddy obtains and renews a certificate for GWS_DOMAIN. There is
+#     no profile to remember and no way to accidentally serve the app over plain
+#     HTTP from this file.
+#   * PocketBase is NEVER published to the host. `expose` makes it reachable only
+#     by other services on this compose network (i.e. caddy). Publishing 8090
+#     would put an unencrypted admin panel on the host's network. The previous
+#     version did exactly that while the proxy only added TLS beside it.
+#   * ENCRYPTION_KEY is REQUIRED. Compose refuses to start without it, because an
+#     empty value does not fail loudly -- the app boots and silently stores the
+#     Google service-account key in PLAINTEXT.
+#
+# Already run a reverse proxy (nginx, Traefik, an ingress)?
+#   Do not use this file as-is. See "Using your own reverse proxy" in the README.
+#
+# Local testing without TLS:  docker compose -f docker-compose.dev.yml up -d
+# =============================================================================
 
 services:
   gws:
-    # Local build tag by default. Set GWS_IMAGE to use a published image,
-    # e.g. GWS_IMAGE=registry.example.com/gws-admin:latest
-    image: ${GWS_IMAGE:-gws-admin:local}
-    build: .
+    # The published image. `docker compose up -d` PULLS this — there is nothing
+    # to build, and no registry login (the package is public).
+    image: ${GWS_IMAGE:-ghcr.io/wannaco/gws-manager:latest}
+    # To build from this checkout instead of pulling — e.g. you have modified the
+    # source for your own internal use — uncomment the next line and run
+    # `docker compose up -d --build`. Note the licence permits modifying and
+    # running this internally, but NOT distributing a built image to others.
+    # build: .
     restart: unless-stopped
-    ports:
-      - "8090:8090"
+
+    # Internal only. Deliberately `expose`, not `ports`: see the header above.
+    expose:
+      - "8090"
+
     volumes:
       - ./data:/app/data
+
     environment:
       # Encrypts the Google service-account key at rest.
-      # REQUIRED for production. Generate with: openssl rand -hex 32
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
-      # Optional: restrict API access to a single origin.
+      # Generate once:  openssl rand -hex 32   (see .env.example — back it up)
+      # Quoted because the message contains ": " which YAML would otherwise read
+      # as a mapping and reject as "unexpected type map[string]interface {}".
+      - "ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env - generate one with openssl rand -hex 32}"
+      # Optional. Restricts cross-origin API access to a single origin.
       - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
     networks:
       - gws-net
 
-  # Optional HTTPS reverse proxy (enable with: docker compose --profile proxy up -d)
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    profiles:
-      - proxy
+
     ports:
       - "80:80"
       - "443:443"
+      # Caddy needs 80/443 reachable for the ACME challenge, and 443 for traffic.
+      # If you terminate TLS elsewhere, use docker-compose.dev.yml or your own
+      # proxy instead of this service.
+
+    environment:
+      - "GWS_DOMAIN=${GWS_DOMAIN:?set GWS_DOMAIN in .env - the hostname that resolves to this server}"
+
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+
+    depends_on:
+      gws:
+        # Wait for the app to answer its healthcheck before Caddy starts trying to
+        # proxy to it, so a cold boot does not serve 502s.
+        condition: service_healthy
+
     networks:
       - gws-net
 

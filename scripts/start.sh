@@ -41,9 +41,14 @@ if ! pgrep -f 'sidecar/signer' >/dev/null 2>&1; then
 fi
 
 # 3. PocketBase
-echo "Starting PocketBase on :8090 ..."
+# Bind to LOOPBACK by default. PocketBase serves the admin UI and API over plain
+# HTTP, so binding 0.0.0.0 puts that on your network unencrypted. Run a reverse
+# proxy in front (see "Using your own reverse proxy" in the README) and set
+# GWS_BIND only if you deliberately need to expose it directly.
+GWS_BIND="${GWS_BIND:-127.0.0.1:8090}"
+echo "Starting PocketBase on ${GWS_BIND} ..."
 exec ./pocketbase serve \
-  --http=0.0.0.0:8090 \
+  --http="$GWS_BIND" \
   --dir=./data \
   --hooksDir=./hooks \
   --migrationsDir=./backend \

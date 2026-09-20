@@ -1,16 +1,48 @@
-# ── GWS Admin — Caddy reverse proxy ──
+# ── GWS Manager — Caddy reverse proxy ──
 #
-# Optional: this profile gives you HTTPS without running your own proxy.
+# Used by the `caddy` service in docker-compose.yml. Caddy obtains and renews a
+# certificate for $GWS_DOMAIN automatically (Let's Encrypt by default).
 #
-#   1. Replace the hostname below with your own (it must already resolve to
-#      this server, and ports 80/443 must be reachable — Caddy needs them to
-#      obtain a Let's Encrypt certificate).
-#   2. docker compose --profile proxy up -d
+# Requirements: the hostname must already resolve to this server, and ports 80
+# and 443 must be reachable from the internet so the ACME challenge can complete.
 #
-# Using your own reverse proxy (nginx, Traefik, a load balancer, ...) instead?
-# Skip this profile and proxy to the `gws` service on port 8090.
+# Using your own proxy (nginx, Traefik, an ingress, a load balancer)?
+#   This file is then unused. Proxy to the `gws` service on port 8090 and apply
+#   the same response headers yourself — they are listed below with reasons.
 
-gws.example.com {
+{$GWS_DOMAIN} {
 	encode zstd gzip
+
 	reverse_proxy gws:8090
+
+	# Do not advertise the proxy or its version.
+	header -Server
+	header -X-Powered-By
+
+	header {
+		# TLS is terminated here and plain HTTP is redirected by Caddy, so this
+		# is safe. Deliberately WITHOUT includeSubDomains: this hostname is
+		# typically one of several under the same apex, and pinning HTTPS for all
+		# of them from here would affect subdomains the operator did not intend.
+		# Add it yourself once every subdomain is HTTPS-capable.
+		Strict-Transport-Security "max-age=31536000"
+
+		# The app sets nosniff and X-Frame-Options on its own responses; repeating
+		# them here also covers Caddy's own error pages and static responses.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+
+		# An admin console should not be indexed. Remove if that is not wanted.
+		X-Robots-Tag "noindex, nofollow"
+	}
+
+	# NOTE ON CONTENT-SECURITY-POLICY — deliberately not set.
+	#
+	# The frontend loads Tailwind, htmx, GrapesJS and Font Awesome from CDNs and
+	# uses inline event handlers, so a CSP would have to allow CDN script/style
+	# origins and 'unsafe-inline'. Shipping one without testing it would break the
+	# UI, and a permissive CSP is worse than none because it looks like coverage
+	# that is not there. If you want a CSP, tune it against your own deployment
+	# and tighten it from there.
 }

@@ -44,28 +44,104 @@ is why it must be stored somewhere durable that survives losing the server.
 
 ## Quick Start (Docker — recommended)
 
+There are **two compose files**. They do different jobs and are separate files on
+purpose (not profiles), so there is no flag to forget and no way to run the server
+file without TLS.
+
+|  | `docker-compose.yml` | `docker-compose.dev.yml` |
+|---|---|---|
+| **Use it on** | a server, VPS, or anywhere reachable | your own machine |
+| **Needs** | `GWS_DOMAIN` + `ENCRYPTION_KEY` | **nothing** — works with no `.env` |
+| **Serves** | HTTPS on 443 via bundled Caddy | plain HTTP on `127.0.0.1:8090` |
+| **App port published?** | **no** | loopback only |
+| **Reachable from** | the internet, at your domain | only that one machine |
+
+**On a server:**
+
 ```bash
 git clone <repo-url> gws-admin && cd gws-admin
-cp .env.example .env            # then set ENCRYPTION_KEY (see above — new installs only)
-docker compose up -d
+cp .env.example .env            # set GWS_DOMAIN and ENCRYPTION_KEY
+docker compose up -d            # → https://<GWS_DOMAIN>
 ```
 
-Open http://localhost:8090
-
-The image is built from the checkout, so nothing needs to be installed on the
-host except Docker — PocketBase and the Go signer are fetched/compiled during
-the build.
-
-To serve it over HTTPS without your own reverse proxy, set your hostname in
-`caddy/Caddyfile` (it must already resolve to the server, with ports 80/443
-reachable so Caddy can obtain a certificate), then:
+**On your own machine (no domain, no VPS, no TLS):**
 
 ```bash
-docker compose --profile proxy up -d
+git clone <repo-url> gws-admin && cd gws-admin
+docker compose -f docker-compose.dev.yml up -d   # → http://127.0.0.1:8090
 ```
 
-If you already run nginx/Traefik/etc., skip that profile and proxy to the `gws`
-service on port 8090.
+Either way **nothing needs installing beyond Docker.** On a server the compose
+pulls the published image; locally the dev compose builds it from the checkout
+(PocketBase and the Go signer are fetched/compiled during that build).
+
+The details of each are below.
+
+### On a server — `docker-compose.yml`
+
+**HTTPS by default.** Caddy obtains and renews a certificate for you, and
+PocketBase is never published on a host port, so there is no plaintext path to it.
+
+`GWS_DOMAIN` must already resolve to this server (an A/AAAA record), and ports
+**80 and 443 must be reachable from the internet** so Caddy can complete the ACME
+challenge.
+
+Both variables are enforced: **compose refuses to start without them.** Neither
+has a safe default — an empty `ENCRYPTION_KEY` does not fail loudly, it makes the
+app silently store your Google service-account key in plaintext.
+
+### On your own machine — `docker-compose.dev.yml`
+
+Publishes the app on **`127.0.0.1:8090` only** — this machine, and nothing else on
+your network. Open <http://127.0.0.1:8090>. It needs no `.env` at all.
+
+It is a separate file rather than a flag so there is no way to end up running the
+server file with the proxy disabled. It defaults `ENCRYPTION_KEY` to a throwaway
+value — **never point it at production `data/`**, because a different key makes the
+stored service-account key unreadable rather than failing loudly.
+
+### Using your own reverse proxy
+
+Run the app without the bundled Caddy. It is not published on a host port, so
+give your proxy one of two things:
+
+**1. A loopback port** — simplest, works with any host-installed proxy:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d     # binds 127.0.0.1:8090 only
+```
+
+Then point nginx/Traefik/your ingress at `http://127.0.0.1:8090`. Keep the
+loopback binding — do **not** change it to `0.0.0.0`, which would put an
+unencrypted admin panel on your network.
+
+**2. The compose network** — if your proxy also runs in Docker:
+
+```bash
+docker network connect gws-manager_gws-net <your-proxy-container>
+```
+
+and proxy to `gws:8090` by service name.
+
+**Whatever you use, set these response headers** at your proxy. They are applied
+by the bundled `caddy/Caddyfile`, which your proxy replaces:
+
+| Header | Value | Why |
+|---|---|---|
+| `Strict-Transport-Security` | `max-age=31536000` | Pin HTTPS. Add `includeSubDomains` only once every subdomain is HTTPS-capable. |
+| `X-Content-Type-Options` | `nosniff` | No MIME sniffing. |
+| `X-Frame-Options` | `SAMEORIGIN` | No framing by other sites. |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Don't leak paths to third parties. |
+| `X-Robots-Tag` | `noindex, nofollow` | An admin console should not be searchable. Optional. |
+
+Remove or mask the `Server` header if your proxy sends one.
+
+A `Content-Security-Policy` is deliberately **not** included: the frontend loads
+Tailwind, htmx, GrapesJS and Font Awesome from CDNs and uses inline handlers, so a
+CSP has to allow those origins and `unsafe-inline`. Publishing one untested would
+break the UI, and a loose one is worse than none because it reads as coverage that
+isn't there. If you want a CSP, tune it against your own deployment and tighten
+from there.
 
 ## Quick Start (bare metal)
 
@@ -77,6 +153,15 @@ cd ~/gws-admin && ./start.sh
 `install.sh` needs `curl`, `tar`, `unzip`, and Go 1.22+ (the signer is compiled
 for your platform). It can also register a systemd service.
 
+**Bare metal binds `127.0.0.1:8090` only.** PocketBase serves plain HTTP, so
+binding every interface would put the admin UI on your network unencrypted. Put a
+reverse proxy in front of it (see
+[Using your own reverse proxy](#using-your-own-reverse-proxy) — the headers there
+apply the same way) and reach it through that.
+
+Override with `GWS_BIND` if you deliberately need direct exposure, e.g.
+`GWS_BIND=0.0.0.0:8090 ./start.sh`. Do not do that on an untrusted network.
+
 **First time?** Register with your Google Workspace domain email, then go to
 Settings and upload a service account JSON key (domain-wide delegation). The
 user sync populates your domain users.
@@ -85,6 +170,7 @@ user sync populates your domain users.
 
 | Variable | Required | Purpose |
 |---|---|---|
+| `GWS_DOMAIN` | **yes, with the bundled proxy** | Hostname Caddy serves and obtains a certificate for. Must resolve to this server. Not needed with `docker-compose.dev.yml` or your own proxy. |
 | `ENCRYPTION_KEY` | **yes, for production** | Encrypts the Google service-account key at rest. **Generate once for a NEW install only, then keep forever** — reuse the original for an existing `data/` volume. See [Before you install](#before-you-install-create-your-encryption-key). |
 | `GWS_ALLOWED_ORIGIN` | no | If set, only this exact origin may call the API cross-origin. Same-origin works regardless, so leave blank unless you embed the UI elsewhere. |
 
@@ -137,9 +223,12 @@ gws-manager/
 ├── data/              # SQLite database (auto-created; mount as a volume)
 ├── sidecar/           # Go signer source for RS256 JWT (Google SA keys)
 ├── scripts/           # install, start, manage, build helpers
+├── caddy/             # Caddyfile for the bundled HTTPS proxy
 ├── docs/              # Design notes
+├── .env.example       # Copy to .env; GWS_DOMAIN + ENCRYPTION_KEY are required
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml      # Production: TLS on, app not published
+├── docker-compose.dev.yml  # Local only: no TLS, 127.0.0.1
 ├── THIRD_PARTY_NOTICES.md  # Upstream licenses for bundled components
 └── DEVELOPMENT.md     # Development guide
 ```
@@ -157,44 +246,54 @@ gws-manager/
 Back up `data/` **and** `ENCRYPTION_KEY` — restoring one without the other
 leaves the stored service-account key unreadable.
 
-## Using a published image
+## Using the published image
 
-Prebuilt images are published publicly to GitHub Container Registry — no
-registry login is required:
+**There is nothing to build.** The image is published publicly to GitHub
+Container Registry, so no registry login is required:
 
 ```bash
 docker pull ghcr.io/wannaco/gws-manager:latest
 ```
 
-Run it (supply the `ENCRYPTION_KEY` you created above):
+Run it (supply the `ENCRYPTION_KEY` you created above). **The port is bound to
+loopback** so the unencrypted admin UI is not on your network:
 
 ```bash
-docker run -d --name gws-manager -p 8090:8090 \
+docker run -d --name gws-manager -p 127.0.0.1:8090:8090 \
   -e ENCRYPTION_KEY='<your key>' \
   -v gws_data:/app/data \
   ghcr.io/wannaco/gws-manager:latest
 ```
+
+→ <http://127.0.0.1:8090>
+
+This is a **local / evaluation** run: plain HTTP, no TLS. For anything reachable,
+use `docker compose up -d` — the bundled Caddy gives you HTTPS and never publishes
+the app port. If you front it with your own proxy instead, see
+[Using your own reverse proxy](#using-your-own-reverse-proxy).
 
 **If you are attaching an existing `data/` volume, you must pass the same
 `ENCRYPTION_KEY` that was used when that data was created.** A different value
 does not raise an error — the app starts normally and then fails every Google
 call, because it cannot decrypt the stored service-account key.
 
-To use a published image with compose instead of building locally:
+### Updating
+
+`docker compose up -d` pulls `:latest` each time, so taking an update is:
 
 ```bash
-GWS_IMAGE=ghcr.io/wannaco/gws-manager:latest docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
-With a prebuilt image the deployment pulls on each `up`, so keep the tag
-current (or pin a digest) and re-run `docker compose up -d` to take an update.
+Or pin a specific digest for reproducibility. Back up `data/` **and** your
+`ENCRYPTION_KEY` first — restoring one without the other leaves the stored
+service-account key unreadable.
 
-## Building an image yourself
+### Building from source
 
-```bash
-./scripts/build-docker.sh my-registry/gws-admin:dev
-docker push my-registry/gws-admin:dev
-```
+Not a documented path for self-hosters — it is a **development** task. See
+[DEVELOPMENT.md](DEVELOPMENT.md). The licence permits modifying and running this
+software internally, but **not distributing a built image to others**.
 
 ## Development
 
@@ -210,7 +309,9 @@ npx playwright test
 
 ### PocketBase hook gotchas
 
-Two things bite everyone writing hooks for this app:
+The two that bite hardest. **The full list of nine — including the four that
+silently produce wrong behaviour rather than errors — is in
+[DEVELOPMENT.md](DEVELOPMENT.md#pocketbase-what-will-bite-you).**
 
 1. **Module-level bindings are not visible inside handlers.** PocketBase's JSVM
    evaluates each handler in its own scope, so a module-level `var`/`function`

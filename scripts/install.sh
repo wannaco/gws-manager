@@ -128,9 +128,13 @@ if ! pgrep -f "$DIR/sidecar/signer" >/dev/null 2>&1; then
   nohup "$DIR/sidecar/signer" > /tmp/gws-signer.log 2>&1 &
 fi
 
-echo "Starting PocketBase on :8090 ..."
+# Loopback by default: PocketBase serves plain HTTP, so 0.0.0.0 would expose the
+# admin UI on your network. Front it with a reverse proxy; override with GWS_BIND
+# only if you deliberately need direct exposure.
+GWS_BIND="${GWS_BIND:-127.0.0.1:8090}"
+echo "Starting PocketBase on ${GWS_BIND} ..."
 exec "$DIR/pocketbase" serve \
-  --http=0.0.0.0:8090 \
+  --http="$GWS_BIND" \
   --dir="$DIR/data" \
   --hooksDir="$DIR/hooks" \
   --migrationsDir="$DIR/backend" \

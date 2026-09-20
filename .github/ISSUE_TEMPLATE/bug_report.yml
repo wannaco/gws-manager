@@ -1,0 +1,100 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly.
+title: "[Bug] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Before you file
+
+        Setup problems are almost always Google-side, not app-side — check the
+        [setup tutorial](https://github.com/wannaco/gws-manager/blob/main/tutorial.md)
+        and [GOOGLE-WORKSPACE.md](https://github.com/wannaco/gws-manager/blob/main/GOOGLE-WORKSPACE.md)
+        first. Domain-wide delegation, the OAuth scopes, and the service account
+        are the usual culprits.
+
+        **Do not paste any of these.** They are secrets, and a public issue is
+        permanent and indexed:
+
+        - the service-account JSON key (`private_key`, `client_email`)
+        - your `ENCRYPTION_KEY`
+        - real user email addresses or your live domain name (redact to `example.com`)
+        - webhook URLs, OAuth tokens, or log lines containing any of the above
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: |
+        Settings → the line at the bottom of the page. It looks like
+        `f614c96 · built 2026-09-20T20:27:11Z · PocketBase 0.39.0`.
+        If the build predates that line, paste your image tag or `docker inspect`
+        image digest instead.
+      placeholder: "f614c96 · built 2026-09-20T20:27:11Z · PocketBase 0.39.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - docker compose (server, bundled Caddy)
+        - docker compose with my own reverse proxy (Traefik / nginx / etc.)
+        - docker-compose.dev.yml (local machine)
+        - docker run / published image
+        - Bare metal (scripts/install.sh)
+        - Built from source
+    validations:
+      required: true
+
+  - type: input
+    id: domain-size
+    attributes:
+      label: Roughly how many users are in the domain?
+      description: Only matters for bulk and scheduled applies, but it changes the answer a lot.
+      placeholder: "e.g. 40, 500, 12,000 — or 'test domain'"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+      description: The exact action you took, and the exact result. If a bulk job was involved, say whether it was a dry run.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or log output
+      description: The exact text. Redact secrets and real addresses.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have not included a service-account key, `ENCRYPTION_KEY`, or real user addresses.
+          required: true
+        - label: This is not a security vulnerability (those go to the private advisory link on the previous screen).
+          required: true
+        - label: I understand this is an unpaid project with no response-time commitment.
+          required: false

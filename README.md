@@ -374,6 +374,50 @@ silently produce wrong behaviour rather than errors — is in
 - **HTMX** — Dynamic component loading
 - **Go** — RS256 JWT signer sidecar
 
+## Reporting a bug
+
+**Bugs and feature requests:** [open an issue](https://github.com/wannaco/gws-manager/issues/new/choose).
+The bug template asks for your build and deployment type, which is most of what's
+needed to reproduce anything.
+
+**Security problems:** do **not** use a public issue. Use the
+[private advisory form](https://github.com/wannaco/gws-manager/security/advisories/new) —
+see [SECURITY.md](SECURITY.md).
+
+### Never paste these into an issue
+
+A public issue is permanent and indexed. This software holds Google
+service-account private keys, so please redact:
+
+- the service-account JSON key (`private_key`, `client_email`)
+- your `ENCRYPTION_KEY`
+- real user email addresses and your live domain name — use `example.com`
+- webhook URLs, OAuth tokens, or any log line containing the above
+
+### Where to find your version
+
+Settings → the line at the bottom of the page:
+
+```
+f614c96 · built 2026-09-20T20:27:11Z · PocketBase 0.39.0
+```
+
+Include it. Without a build to point at, a report is guesswork. On a build from
+before that line existed, use `docker inspect` for the image digest, or the image
+tag — every build is also tagged with its commit SHA.
+
+### What to expect
+
+**This is an unpaid, spare-time project. There is no SLA.**
+
+No response-time commitment, no fix commitment, no support obligation — the
+licence says the software comes *as is*, without warranty, and that is deliberate.
+Reports are read, security first, but when that happens depends on spare time.
+
+**If you need something fixed by a date, that is a paid engagement** — the same
+commercial licensing that covers redistribution covers support. Use the contact
+in the Licence section below.
+
 ## Credits
 
 Built with AI assistance.

@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a capability or a change in behaviour.
+title: "[Feature] "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Useful feature requests describe **the problem**, not the implementation.
+        "Applying a forwarding rule to 200 users one at a time takes an hour" is
+        actionable; "add a bulk button" is a guess at the solution.
+
+        Check the README's Features list first — some things that look missing do
+        exist, and bulk apply covers signatures only.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do that you cannot?
+      description: Describe the task and where the app gets in the way.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What do you do today instead?
+      description: Doing it by hand, the Admin Console, Apps Script, a GAM command — knowing the workaround shapes the fix.
+    validations:
+      required: false
+
+  - type: textarea
+    id: scale
+    attributes:
+      label: At what scale does this matter?
+      description: One user, one OU, or the whole domain — and roughly how many.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I checked the README's features and this is not already supported.
+          required: false

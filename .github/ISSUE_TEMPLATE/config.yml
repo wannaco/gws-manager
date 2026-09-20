@@ -1,0 +1,16 @@
+# Issue chooser configuration.
+#
+# A blank issue is deliberately still allowed — forcing a template on a vague
+# "it doesn't work" report just loses the report.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/wannaco/gws-manager/security/advisories/new
+    about: Never report a vulnerability in a public issue. See SECURITY.md.
+  - name: Setup, Google Cloud, and domain-wide delegation
+    url: https://github.com/wannaco/gws-manager/blob/main/tutorial.md
+    about: The setup tutorial, and GOOGLE-WORKSPACE.md, cover most install failures.
+  - name: Read this before installing
+    url: https://github.com/wannaco/gws-manager/blob/main/README.md
+    about: Deployment, the ENCRYPTION_KEY rules, and how updates work.

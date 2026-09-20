@@ -455,7 +455,7 @@ gws-manager/
 │   └── Caddyfile               # bundled HTTPS proxy (production compose)
 ├── Dockerfile
 ├── docker-compose.yml          # standalone: bundled Caddy, TLS on
-├── docker-compose.dokploy.yml  # platform terminates TLS (Dokploy/Traefik)
+├── docker-compose.traefik.yml  # platform terminates TLS (Dokploy/Traefik)
 ├── docker-compose.dev.yml      # local: no TLS, 127.0.0.1:8090 only
 └── package.json                # Node deps (playwright)
 

@@ -2,11 +2,11 @@
 # GWS Manager — compose for a platform that ALREADY terminates TLS
 #
 # Use this when something else owns ports 80/443 and routes to your container by
-# name — Dokploy/Traefik, Coolify, Kubernetes ingress, an existing nginx, etc.
+# name — Traefik, Coolify, Kubernetes ingress, an existing nginx, Dokploy, etc.
 #
-#   docker-compose.yml         standalone server: bundled Caddy, needs GWS_DOMAIN
-#   docker-compose.dev.yml     local machine: no TLS, 127.0.0.1
-#   docker-compose.dokploy.yml THIS FILE: platform terminates TLS
+#   docker-compose.yml          standalone server: bundled Caddy, needs GWS_DOMAIN
+#   docker-compose.traefik.yml  THIS FILE: something else terminates TLS
+#   docker-compose.dev.yml      local machine: no TLS, 127.0.0.1
 #
 # Do NOT use docker-compose.yml here. It runs its own Caddy on 80/443, which
 # collides with the platform's proxy, and it requires GWS_DOMAIN which a platform

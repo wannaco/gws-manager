@@ -142,3 +142,20 @@
 #schedule-editor { z-index: 100; }
 #audience-overlay { z-index: 120; }
 #modal-overlay   { z-index: 130; }
+
+/* A checkbox with an explanatory line, used where a single tick changes what
+   gets applied (e.g. "follow this template"). */
+.gws-checkline {
+  display: flex; align-items: flex-start; gap: .5rem;
+  font-size: .8125rem; cursor: pointer; margin-bottom: .5rem;
+}
+.gws-checkline input { margin-top: .15rem; flex: none; }
+
+.gws-source-note {
+  font-size: .75rem; opacity: .7; margin-bottom: .5rem;
+  border-left: 2px solid oklch(var(--p)/.5); padding-left: .5rem;
+}
+.gws-source-warn { color: oklch(var(--wa)); opacity: 1; border-left-color: oklch(var(--wa)); }
+
+/* An editor that is being deliberately ignored must LOOK ignored. */
+.gws-disabled { opacity: .45; }

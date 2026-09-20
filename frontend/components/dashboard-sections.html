@@ -259,8 +259,21 @@
 
         <div class="gws-field">
           <label class="gws-label">Signature</label>
-          <select id="sch-template" class="select select-bordered w-full mb-2"></select>
-          <div class="text-xs opacity-60 mb-2">…or build one here (used when no saved template is chosen):</div>
+          <div class="flex gap-2 mb-2">
+            <select id="sch-template" class="select select-bordered flex-1"
+                    onchange="onScheduleTemplateChange()"></select>
+            <button class="btn btn-sm btn-outline" onclick="reloadScheduleTemplate()"
+                    title="Load the selected template's content into the editor again">Load</button>
+          </div>
+
+          <label class="gws-checkline">
+            <input type="checkbox" id="sch-template-live" class="checkbox checkbox-sm"
+                   onchange="onScheduleTemplateLiveChange()">
+            <span>Follow this template — always apply its current content, ignoring the editor below</span>
+          </label>
+
+          <div class="gws-source-note" id="sch-source-note"></div>
+
           <div id="sch-editor-html" class="border border-base-300 rounded-lg overflow-hidden min-h-[220px]"></div>
         </div>
 

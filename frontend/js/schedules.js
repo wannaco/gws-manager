@@ -309,13 +309,20 @@ async function openScheduleEditor(id) {
 
     // signature picker
     const sel = document.getElementById('sch-template');
-    sel.innerHTML = '<option value="">— editor content below —</option>';
+    sel.innerHTML = '<option value="">— none, use the editor below —</option>';
+    window._schedTemplates = [];
     try {
         const t = await api('GET', '/gws/signature-templates');
-        sel.innerHTML += (t.templates || []).map(x =>
-            `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+        window._schedTemplates = t.templates || [];
+        sel.innerHTML += window._schedTemplates.map(x =>
+            `<option value="${esc(x.id)}">${esc(x.name)}${(x.html || '').trim() ? '' : ' (empty)'}</option>`).join('');
     } catch (_) {}
-    if (s && s.templateId) sel.value = s.templateId;
+
+    // a schedule that stored templateId and no inline html was following the
+    // template live; one with inline html is a snapshot of the editor
+    const live = !!(s && s.templateId && !s.hasInlineHtml);
+    document.getElementById('sch-template-live').checked = live;
+    sel.value = (s && s.templateId) ? s.templateId : '';
 
     // inline editor
     window._scheduleEditor = null;
@@ -327,7 +334,11 @@ async function openScheduleEditor(id) {
             storageManager: { type: 'none' },
             canvas: { styles: ['body { font-family: sans-serif; font-size:14px; }'] },
         });
-        if (s && s.hasInlineHtml) {
+        // Reflect the RESTORED mode first: the checkbox was set programmatically
+        // above, so its change handler never ran and the editor would not look
+        // (or behave as) disabled. This also loads the template when following.
+        onScheduleTemplateLiveChange();
+        if (!document.getElementById('sch-template-live').checked && s && s.hasInlineHtml) {
             // the list payload omits the html (it can be large) -- fetch it
             api('GET', '/gws/bulk/schedules?id=' + encodeURIComponent(s.id))
                 .then(full => {
@@ -375,13 +386,20 @@ async function saveSchedule() {
     const title = document.getElementById('sch-title').value.trim();
     if (!title) return showErr('Give the schedule a title.');
 
-    const templateId = document.getElementById('sch-template').value;
+    // exactly one of these is sent, decided by the "follow this template" box
+    const follows = _followingTemplate();
+    const pickedId = document.getElementById('sch-template').value;
+    const templateId = follows ? pickedId : '';
     let html = '';
-    if (!templateId && window._scheduleEditor) {
+    if (!follows && window._scheduleEditor) {
         html = cleanEditorOutput(window._scheduleEditor);
         if (_isEffectivelyEmpty(html)) html = '';
     }
-    if (!templateId && !html) {
+    if (!follows && !html) {
+        if (pickedId) {
+            return showErr('The editor is empty. Either load the template and edit it, '
+                         + 'or tick “Follow this template” to apply its content as-is.');
+        }
         return showErr('This schedule has no signature — pick a saved template or build one in the editor.');
     }
     if (!window._scheduleAudience || !window._scheduleAudience.count) {
@@ -412,6 +430,84 @@ async function saveSchedule() {
         closeScheduleEditor();
         await loadSchedules();
     } catch (e) { showErr(e.message); }
+}
+
+// ── template handling ────────────────────────────────────────────────────────
+//
+// There are two ways to supply the signature, and the rule must be VISIBLE --
+// previously picking a template silently discarded anything in the editor.
+
+function _selectedTemplate() {
+    const id = document.getElementById('sch-template').value;
+    if (!id) return null;
+    return (window._schedTemplates || []).find(x => x.id === id) || null;
+}
+
+function _followingTemplate() {
+    return !!document.getElementById('sch-template-live').checked &&
+           !!document.getElementById('sch-template').value;
+}
+
+// Put the selected template's content into the editor so it can be seen (and, in
+// snapshot mode, edited).
+function loadTemplateIntoEditor() {
+    const t = _selectedTemplate();
+    if (!t) return;
+    if (!window._scheduleEditor) return;
+    const html = t.html || '';
+    if (!String(html).trim()) {
+        updateScheduleSourceNote('That template is empty — add content to it first.');
+        return;
+    }
+    window._scheduleEditor.setComponents(cleanHtmlString(html));
+    updateScheduleSourceNote();
+}
+
+function onScheduleTemplateChange() {
+    loadTemplateIntoEditor();
+    updateScheduleSourceNote();
+}
+
+function reloadScheduleTemplate() {
+    if (!document.getElementById('sch-template').value) {
+        notify('Pick a template first', 'error');
+        return;
+    }
+    loadTemplateIntoEditor();
+    notify('Template content loaded into the editor', 'success');
+}
+
+// Ticking "follow live" means the editor is not the source, so say so and make it
+// obvious rather than silently ignoring it.
+function onScheduleTemplateLiveChange() {
+    const live = _followingTemplate();
+    const host = document.getElementById('sch-editor-html');
+    if (host) {
+        host.classList.toggle('gws-disabled', live);
+        const pane = host.querySelector('.gjs-editor');
+        if (pane) pane.style.pointerEvents = live ? 'none' : '';
+    }
+    if (live) loadTemplateIntoEditor();
+    updateScheduleSourceNote();
+}
+
+function updateScheduleSourceNote(msg) {
+    const el = document.getElementById('sch-source-note');
+    if (!el) return;
+    const t = _selectedTemplate();
+    if (msg) { el.textContent = msg; el.className = 'gws-source-note gws-source-warn'; return; }
+    if (!t) {
+        el.textContent = 'The content in the editor below will be applied.';
+        el.className = 'gws-source-note';
+        return;
+    }
+    if (_followingTemplate()) {
+        el.textContent = `Following “${t.name}” — its current content is applied each run, and edits to the template are picked up automatically.`;
+        el.className = 'gws-source-note';
+    } else {
+        el.textContent = `Using a copy of “${t.name}”. Edit it in the editor below; later changes to the template will NOT affect this schedule.`;
+        el.className = 'gws-source-note';
+    }
 }
 
 function onSchedulesSectionShown() {

@@ -578,3 +578,42 @@ element can be un-hidden and still be underneath something. The check that
 catches this is `document.elementFromPoint(x, y)` at the place you would click,
 asserting which element owns that point — now in `test_overlay_stack.py`, along
 with a real click on a control inside the picker.
+
+---
+
+## Defect 15 — picking a template in the schedule editor loaded nothing
+
+The template `<select>` had **no `onchange` handler at all**, so choosing a
+template did not load its content — you could not see what would be applied. The
+user-level page has a separate "Apply" button that does this; the schedule editor
+had no equivalent, so a schedule's signature was invisible until it ran.
+
+There was also a **silent-discard trap** underneath it: `saveSchedule()` sent
+`html: ''` whenever a `templateId` was set, so anything typed into the editor was
+thrown away with no warning. Two possible content sources, no visible rule.
+
+Fixed by making the rule explicit:
+
+* picking a template **loads its content into the editor** on the spot (plus a
+  **Load** button to re-load it after editing);
+* a **"Follow this template"** checkbox decides which source wins:
+  * **off (default)** — the editor is the content; a snapshot is stored, so later
+    edits to the template do **not** change this schedule;
+  * **on** — the schedule stores the template id and applies the template's
+    current content each run; the editor is **visibly dimmed and non-interactive**,
+    so nothing is silently ignored;
+* a line under the picker states which of the two is in effect, in words;
+* saving with an empty editor and a template selected now explains the choice
+  instead of discarding content.
+
+Reopening a schedule restores its mode: an inline-html schedule opens as a
+snapshot with the box unticked, a template-id schedule opens following it with the
+box ticked and the editor dimmed.
+
+## Verified
+
+`test_template_load.py` — 20 checks: the dropdown is wired, content loads, the
+note changes with the box, the editor dims when following, an empty editor warns
+instead of dropping content, snapshot mode stores html with no templateId, live
+mode stores the templateId with no html, and both reopen in the right mode.
+Regression: overlay stack 13/13, Schedules UI 32/32.

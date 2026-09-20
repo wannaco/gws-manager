@@ -20,6 +20,34 @@ routerAdd("GET", "/gws/ping", (e) => {
     e.json(200, { ok: true, pong: Date.now() });
 });
 
+// ==================== BUILD IDENTITY ====================
+// What build is this? Needed to act on a bug report without a round-trip.
+//
+// The values come from build-time env vars stamped in by the Dockerfile (fed by
+// CI from the commit being built). A bare-metal or from-source run has none of
+// them set, so every field falls back to an explicit "unknown" rather than a
+// blank — a blank looks like a bug in itself.
+//
+// NOTE: $app.version() does NOT exist in PocketBase 0.39's JSVM (it throws
+// "Object has no member 'version'"), so the PocketBase version is stamped in
+// from the Dockerfile's PB_VERSION build arg instead.
+//
+// Requires auth deliberately: the PocketBase version is not published
+// elsewhere, and it is exactly what someone scanning for known-vulnerable
+// installs would want. Don't make this route public.
+routerAdd("GET", "/gws/version", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    var g = function (k) { try { return $os.getenv(k) || ""; } catch (err) { return ""; } };
+    e.json(200, {
+        commit: g("GWS_GIT_SHA").slice(0, 7) || "unknown",
+        commitFull: g("GWS_GIT_SHA") || "unknown",
+        buildDate: g("GWS_BUILD_DATE") || "unknown",
+        pocketbase: g("GWS_PB_VERSION") || "unknown"
+    });
+});
+
 // ==================== CONFIG / SETUP ====================
 
 // Get current user's config

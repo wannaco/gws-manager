@@ -16,5 +16,29 @@ async function saveSettings() {
     toggleSettingsEdit();
   } catch(e) { $('settings-result').innerHTML = `<div class="alert alert-error mt-3 text-sm">${esc(e.message)}</div>`; }
 }
+// ── Build identity ──
+// Shown in Settings so a bug report can name the exact build. Served by
+// GET /gws/version, which reads build-time env vars stamped in by the Dockerfile.
+window._buildInfo = null;
+async function loadVersion() {
+  try {
+    const v = await api('GET', '/gws/version');
+    window._buildInfo = v;
+    const parts = [`${v.commit}`];
+    if (v.buildDate && v.buildDate !== 'unknown') parts.push(`built ${v.buildDate}`);
+    if (v.pocketbase && v.pocketbase !== 'unknown') parts.push(`PocketBase ${v.pocketbase}`);
+    $('app-version').textContent = parts.join(' · ');
+  } catch (e) {
+    // Never fail silently: an unknown version is itself worth reporting.
+    $('app-version').textContent = 'version unavailable (' + (e.message || 'error') + ')';
+  }
+}
+function copyVersion() {
+  const t = $('app-version').textContent;
+  navigator.clipboard?.writeText('GWS Manager ' + t)
+    .then(() => notify('Build info copied', 'success'))
+    .catch(() => notify('Copy failed — select the text manually', 'error'));
+}
+
 async function saveWebhook() { try { await api('POST','/gws/webhook-config',{action:'save',webhookUrl:$('webhook-url').value.trim()}); notify('Saved','success'); } catch(e) { notify(e.message,'error'); } }
 async function testWebhook() { try { const r = await api('POST','/gws/webhook-config',{action:'test'}); notify('Test sent — status: '+r.status,'success'); } catch(e) { notify(e.message,'error'); } }

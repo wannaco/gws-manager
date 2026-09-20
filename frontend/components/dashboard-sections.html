@@ -378,5 +378,12 @@
         </div>
       </div>
     </div>
+    <!-- Build identity. Paste this into a bug report so the report names a
+         build. Populated by loadVersion() in settings.js. -->
+    <div class="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs opacity-60" title="Include this in any bug report">
+      <span class="font-semibold">GWS Manager</span>
+      <span id="app-version">…</span>
+      <button class="btn btn-ghost btn-xs" onclick="copyVersion()" title="Copy build info">Copy</button>
+    </div>
   </div>
 </main>

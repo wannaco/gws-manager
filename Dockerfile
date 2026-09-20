@@ -20,6 +20,14 @@ FROM alpine:3.21
 ARG PB_VERSION
 ARG TARGETARCH=amd64
 
+# Build identity, stamped in by CI from the commit being built. Surfaced by
+# GET /gws/version and shown in Settings, so a bug report can name its build.
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ENV GWS_GIT_SHA=${GIT_SHA} \
+    GWS_BUILD_DATE=${BUILD_DATE} \
+    GWS_PB_VERSION=${PB_VERSION}
+
 RUN apk add --no-cache ca-certificates tzdata bash curl unzip && \
     adduser -D -h /app gws
 

@@ -20,4 +20,14 @@ function navTo(section) {
   if (section === 'sig-bulk') loadBulkSection();
   if (section === 'bulk-jobs' && typeof onBulkJobsSectionShown === 'function') onBulkJobsSectionShown();
   if (section === 'schedules' && typeof onSchedulesSectionShown === 'function') onSchedulesSectionShown();
+  // The settings section is loaded via htmx, so #app-version may not exist yet
+  // when this runs. Retry briefly rather than doing nothing silently.
+  if (section === 'settings' && typeof loadVersion === 'function') {
+    let tries = 0;
+    const wait = () => {
+      if ($('app-version')) loadVersion();
+      else if (tries++ < 20) setTimeout(wait, 50);
+    };
+    wait();
+  }
 }

@@ -23,6 +23,13 @@
 services:
   gws:
     image: ${GWS_IMAGE:-ghcr.io/wannaco/gws-manager:latest}
+
+    # Required, not cosmetic. Compose defaults to pull_policy: missing, which only
+    # pulls when the image is absent locally. A moving tag like :latest is then
+    # never re-fetched, `up -d` sees no change, and the deploy "succeeds" in about
+    # a second while the old container keeps running. Always pull so a redeploy
+    # actually picks up the new build.
+    pull_policy: always
     restart: unless-stopped
 
     # Internal only — the platform's proxy reaches it by service name on 8090.

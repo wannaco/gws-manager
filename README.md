@@ -308,15 +308,22 @@ call, because it cannot decrypt the stored service-account key.
 
 ### Updating
 
-`docker compose up -d` pulls `:latest` each time, so taking an update is:
+The compose files set `pull_policy: always`, so `docker compose up -d` re-fetches
+`:latest` and recreates the container if the image moved:
 
 ```bash
-docker compose pull && docker compose up -d
+docker compose up -d
 ```
 
-Or pin a specific digest for reproducibility. Back up `data/` **and** your
-`ENCRYPTION_KEY` first — restoring one without the other leaves the stored
-service-account key unreadable.
+**Do not remove that setting.** Docker Compose defaults to pulling only when the
+image is *absent* locally, so with a moving tag like `:latest` it would never
+re-fetch, `up -d` would see no change, and the update would silently do nothing
+while reporting success. (`docker compose pull && docker compose up -d` also
+works, but only because it pulls explicitly.)
+
+Or pin a specific tag or digest for reproducibility — every build is also
+tagged with its commit SHA. Back up `data/` **and** your `ENCRYPTION_KEY` first:
+restoring one without the other leaves the stored service-account key unreadable.
 
 ### Building from source
 

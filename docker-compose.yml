@@ -28,10 +28,16 @@ services:
     # The published image. `docker compose up -d` PULLS this — there is nothing
     # to build, and no registry login (the package is public).
     image: ${GWS_IMAGE:-ghcr.io/wannaco/gws-manager:latest}
+    # Required, not cosmetic. Compose defaults to pull_policy: missing, which only
+    # pulls when the image is absent locally. A moving tag like :latest is then
+    # never re-fetched, so `up -d` sees no change and silently keeps the old
+    # container. Always pull, so taking an update actually updates.
+    pull_policy: always
     # To build from this checkout instead of pulling — e.g. you have modified the
-    # source for your own internal use — uncomment the next line and run
-    # `docker compose up -d --build`. Note the licence permits modifying and
-    # running this internally, but NOT distributing a built image to others.
+    # source for your own internal use — uncomment the next line, DELETE
+    # pull_policy above, and run `docker compose up -d --build`. Note the licence
+    # permits modifying and running this internally, but NOT distributing a
+    # built image to others.
     # build: .
     restart: unless-stopped
 

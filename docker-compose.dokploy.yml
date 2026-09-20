@@ -1,0 +1,50 @@
+# =============================================================================
+# GWS Manager — compose for a platform that ALREADY terminates TLS
+#
+# Use this when something else owns ports 80/443 and routes to your container by
+# name — Dokploy/Traefik, Coolify, Kubernetes ingress, an existing nginx, etc.
+#
+#   docker-compose.yml         standalone server: bundled Caddy, needs GWS_DOMAIN
+#   docker-compose.dev.yml     local machine: no TLS, 127.0.0.1
+#   docker-compose.dokploy.yml THIS FILE: platform terminates TLS
+#
+# Do NOT use docker-compose.yml here. It runs its own Caddy on 80/443, which
+# collides with the platform's proxy, and it requires GWS_DOMAIN which a platform
+# deployment does not use.
+#
+# The app is not published on a host port. The platform routes to the `gws`
+# service on 8090 over the shared network.
+#
+# Required in the platform's environment settings:
+#   ENCRYPTION_KEY   (same value as any existing data/ volume uses, or the
+#                     stored service-account key becomes unreadable)
+# =============================================================================
+
+services:
+  gws:
+    image: ${GWS_IMAGE:-ghcr.io/wannaco/gws-manager:latest}
+    restart: unless-stopped
+
+    # Internal only — the platform's proxy reaches it by service name on 8090.
+    expose:
+      - "8090"
+
+    volumes:
+      - gws_data:/app/data
+
+    environment:
+      - "ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in the platform's environment settings}"
+      - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  # Named so the database survives redeploys. On an existing deployment, make sure
+  # the platform attaches the volume holding the current data rather than this
+  # fresh one, or the app comes up empty.
+  gws_data:

@@ -227,7 +227,8 @@ gws-manager/
 ├── docs/              # Design notes
 ├── .env.example       # Copy to .env; GWS_DOMAIN + ENCRYPTION_KEY are required
 ├── Dockerfile
-├── docker-compose.yml      # Production: TLS on, app not published
+├── docker-compose.yml      # Standalone server: bundled Caddy, TLS on
+├── docker-compose.dokploy.yml # Platform owns TLS (Dokploy/Coolify/ingress)
 ├── docker-compose.dev.yml  # Local only: no TLS, 127.0.0.1
 ├── THIRD_PARTY_NOTICES.md  # Upstream licenses for bundled components
 └── DEVELOPMENT.md     # Development guide

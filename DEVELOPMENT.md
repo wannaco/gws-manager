@@ -42,12 +42,12 @@ binary, so a bare `./pocketbase serve` silently creates a *second*, empty databa
 
 There are two compose files, and they are not interchangeable:
 
-| | `docker-compose.yml` | `docker-compose.dev.yml` |
-|---|---|---|
-| Purpose | a server | local development |
-| Needs | `GWS_DOMAIN` + `ENCRYPTION_KEY` | nothing |
-| Serves | HTTPS 443 via Caddy | plain HTTP `127.0.0.1:8090` |
-| App port published | no | loopback only |
+| | `docker-compose.yml` | `docker-compose.dev.yml` | `docker-compose.traefik.yml` |
+|---|---|---|---|
+| Purpose | a server | local development | a platform that terminates TLS |
+| Needs | `GWS_DOMAIN` + `ENCRYPTION_KEY` | nothing | `ENCRYPTION_KEY` |
+| Serves | HTTPS 443 via Caddy | plain HTTP `127.0.0.1:8090` | nothing — the platform proxies to it |
+| App port published | no | loopback only | no |
 
 ### Building the image from a checkout
 

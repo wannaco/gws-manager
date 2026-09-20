@@ -44,17 +44,17 @@ is why it must be stored somewhere durable that survives losing the server.
 
 ## Quick Start (Docker — recommended)
 
-There are **two compose files**. They do different jobs and are separate files on
-purpose (not profiles), so there is no flag to forget and no way to run the server
-file without TLS.
+There are **three compose files**. They do different jobs and are separate files
+on purpose (not profiles), so there is no flag to forget and no way to run the
+server file without TLS.
 
-|  | `docker-compose.yml` | `docker-compose.dev.yml` |
-|---|---|---|
-| **Use it on** | a server, VPS, or anywhere reachable | your own machine |
-| **Needs** | `GWS_DOMAIN` + `ENCRYPTION_KEY` | **nothing** — works with no `.env` |
-| **Serves** | HTTPS on 443 via bundled Caddy | plain HTTP on `127.0.0.1:8090` |
-| **App port published?** | **no** | loopback only |
-| **Reachable from** | the internet, at your domain | only that one machine |
+|  | `docker-compose.yml` | `docker-compose.dev.yml` | `docker-compose.traefik.yml` |
+|---|---|---|---|
+| **Use it on** | a server, VPS, anywhere reachable | your own machine | a platform that already terminates TLS |
+| **Needs** | `GWS_DOMAIN` + `ENCRYPTION_KEY` | **nothing** — works with no `.env` | `ENCRYPTION_KEY` |
+| **Serves** | HTTPS on 443 via bundled Caddy | plain HTTP on `127.0.0.1:8090` | nothing — the platform proxies to it |
+| **App port published?** | **no** | loopback only | **no** |
+| **Reachable from** | the internet, at your domain | only that one machine | the platform's network |
 
 **On a server:**
 
@@ -122,6 +122,25 @@ docker network connect gws-manager_gws-net <your-proxy-container>
 ```
 
 and proxy to `gws:8090` by service name.
+
+**3. Your platform deploys from this repo** (Dokploy, Coolify, an ingress
+controller — anything that runs `docker compose up` for you).
+
+Use **`docker-compose.traefik.yml`**. Do **not** leave the path on
+`docker-compose.yml`: that file starts its own Caddy on ports 80 and 443, which
+the platform's proxy already holds, so the deploy fails — and it requires
+`GWS_DOMAIN`, which a platform deployment does not use.
+
+| Setting | Value |
+|---|---|
+| Compose path | `./docker-compose.traefik.yml` |
+| Environment | `ENCRYPTION_KEY=<value>` — **required**, the deploy aborts without it |
+
+That file runs the app alone: no proxy, no published ports, reachable by the
+platform on `gws:8090`.
+
+**Point the platform at the volume holding your existing `data/`.** The file
+declares a named volume, and a fresh one means the app starts empty.
 
 **Whatever you use, set these response headers** at your proxy. They are applied
 by the bundled `caddy/Caddyfile`, which your proxy replaces:

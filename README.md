@@ -374,6 +374,49 @@ silently produce wrong behaviour rather than errors — is in
 - **HTMX** — Dynamic component loading
 - **Go** — RS256 JWT signer sidecar
 
+## Screenshots
+
+Captured from a real build running against a **sample domain** — every name,
+address and org unit below is invented. Full-size images are in
+[docs/screenshots](docs/screenshots).
+
+### Users and per-user settings
+
+The dashboard for the work the Admin Console does not cover: delegation, Send As,
+forwarding, filters, signatures, vacation responders and Calendar sharing — one
+user at a time, or in bulk.
+
+| | |
+|---|---|
+| ![Users list](docs/screenshots/01-users.png) | ![Editing one user's signature](docs/screenshots/02-user-signature.png) |
+| **Users** — every account in the domain with its org unit, admin flag and phone. | **One user's signature** — the same editor serves a single user or an audience. |
+
+### Bulk apply
+
+A bulk run is a background job, not a web request. Build the signature, choose
+the audience from OUs / groups / filters, then apply — with per-user progress,
+retry, and a dry run that renders every signature without calling Google.
+
+| | |
+|---|---|
+| ![Bulk signatures](docs/screenshots/03-bulk-signatures.png) | ![Audience builder](docs/screenshots/04-audience.png) |
+| **Bulk signatures** — the editor, the saved templates, and the apply control. | **Audience** — org units, groups and a text filter, with a live recipient count. |
+
+### Schedules and job history
+
+| | |
+|---|---|
+| ![Schedules](docs/screenshots/05-schedules.png) | ![Schedule editor](docs/screenshots/06-schedule-editor.png) |
+| **Schedules** — daily, weekday, monthly or interval, with run counters. | **A schedule** — frequency, time, audience and template. |
+
+| | |
+|---|---|
+| ![Bulk jobs](docs/screenshots/07-bulk-jobs.png) | ![Settings](docs/screenshots/08-settings.png) |
+| **Bulk jobs** — every run, with progress and the Google throttling readout. | **Settings** — domain, service-account key, webhook, and the build you are running. |
+
+> **Note on bulk:** bulk apply covers **signatures**. Delegation, forwarding,
+> filters, vacation and Calendar sharing are managed per user.
+
 ## Reporting a bug
 
 **Bugs and feature requests:** [open an issue](https://github.com/wannaco/gws-manager/issues/new/choose).

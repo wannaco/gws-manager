@@ -151,7 +151,7 @@ async function loadSignature() {
     el.innerHTML = '<h3 class="font-semibold mb-4">Signature for ' + esc(u.email) + '</h3>' +
       '<div class="flex gap-2 mb-3">' +
       '<select id="sig-addr-picker" class="select select-bordered flex-1" onchange="switchSigAddress(this.value)">' + addrOptions + '</select>' +
-      '<button class="btn btn-outline" onclick="saveAsTemplateModal()">Save as Template</button>' +
+      '<button class="btn btn-outline" onclick="saveAsTemplateModal(\'sig\')">Save as Template</button>' +
       '</div>' +
       '<div class="flex gap-2 mb-3" id="sig-template-row"><select id="sig-template-select" class="select select-bordered select-sm flex-1"><option value="">Apply template...</option></select><button class="btn btn-sm btn-outline" onclick="applySigTemplate()">Apply</button></div>' +
       '<div id="sig-editor" class="border border-base-300 rounded-lg"></div>' +

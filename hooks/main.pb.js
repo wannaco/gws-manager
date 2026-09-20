@@ -1168,7 +1168,26 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
             }
         }
         var tmpl = $app.findRecordById("signatureTemplates", job.get("templateId"));
-        var thtml = tmpl.get("html") || "";
+        // `html` is an editor field: PocketBase hands it back as a byte slice, so
+        // decode before testing it. An effectively-empty template would set an
+        // EMPTY signature on every recipient, i.e. wipe their signatures. Refuse.
+        var thtml = h.asString(tmpl.get("html"));
+        var visible = String(thtml)
+            .replace(/<style[\s\S]*?<\/style>/gi, "")
+            .replace(/<script[\s\S]*?<\/script>/gi, "")
+            .replace(/<!--[\s\S]*?-->/g, "")
+            .replace(/<[^>]*>/g, "")
+            .replace(/&nbsp;/gi, " ")
+            .trim();
+        var hasMedia = /<(img|hr|table|tbody|tr|td)\b/i.test(thtml);
+        if (!visible && !hasMedia) {
+            job.set("status", "failed");
+            job.set("lastError", "template is empty - refusing to apply it (it would clear every signature)");
+            job.set("finishedAt", new Date());
+            job.set("lockedAt", null);
+            $app.save(job);
+            return;
+        }
         var sc = ["https://www.googleapis.com/auth/gmail.settings.basic",
                   "https://www.googleapis.com/auth/gmail.settings.sharing"];
 
@@ -1221,9 +1240,13 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
                 if (!dryRun) {
                     // token once per user, reused by every retry of this call
                     var token = h.googleAccessToken(sa, email, sc);
+                    // Write to the user's DEFAULT send-as alias, not blindly to
+                    // their address: patching a sendAs address that is not one
+                    // of that user's aliases fails 400 FAILED_PRECONDITION.
+                    var sendAsEmail = h.resolveSendAs(token, email);
                     h.googleApiRequest(token,
                         "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(email) +
-                        "/settings/sendAs/" + encodeURIComponent(email),
+                        "/settings/sendAs/" + encodeURIComponent(sendAsEmail),
                         "PATCH", { signature: html }, { stats: stats, retryOn5xx: retryOn5xx });
                 }
             } catch (uer) {

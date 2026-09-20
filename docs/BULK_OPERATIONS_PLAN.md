@@ -308,3 +308,81 @@ landed on the **Setup Your Domain** page, because the scratch user had no
 `domain` set, so `get-tenant` returned null and the dashboard never rendered.
 The assertions passed because the markup was in the DOM anyway. The seed now
 sets `users.domain`.
+
+---
+
+# Addendum 3 — blank templates and GMAIL 400 failedPrecondition
+
+Two user-reported failures. Both reproduced, both traced to a specific line.
+
+## Defect 6 — "Save as Template" wrote a blank template
+
+The button lives on a **user's Signature tab** (`user-tabs.js`), but the handler
+it called read the **Bulk Signatures** editor:
+
+```js
+// bulk.js -- the ONLY caller is on the user's Signature tab
+const html = window._bulkEditor ? cleanEditorOutput(window._bulkEditor) : '';
+```
+
+`window._bulkEditor` only exists after the Bulk Signatures section has been
+opened. Reach the Signature tab without doing that — the normal path — and it is
+`undefined`, so `html` was `''` and a **blank template row was stored**, with no
+error shown. If the bulk editor *had* been opened, it saved whatever was in
+there instead: the wrong signature, silently.
+
+Fixed: the modal records which editor to read, the per-user tab passes
+`'sig'`, and the handler uses that user's editor (`getSig()`).
+
+There is now also an emptiness guard. It cannot be a plain `.trim()` check,
+because GrapesJS always emits its canvas CSS — an "empty" editor still returns
+`<style>* { box-sizing: border-box; }</style>`, which passes `.trim()`. The guard
+strips style/script/comments and looks for real text or media.
+
+## Defect 7 — GMAIL_API_ERROR (400): Precondition check failed.
+
+The bulk worker PATCHed the user's own address as the send-as alias:
+
+```js
+"/settings/sendAs/" + encodeURIComponent(email)      // the user's address
+```
+
+That is only valid when the user's address happens to BE one of their send-as
+aliases. If their DEFAULT alias is something else, or their address is not in the
+alias list at all, Gmail answers **400 FAILED_PRECONDITION** — which surfaces as
+"Precondition check failed" and explains nothing.
+
+The single-user path already did this correctly (`/gws/send-as` → pick
+`isDefault || isPrimary` → use that address). The bulk worker never did.
+
+Fixed: `resolveSendAs()` lists the aliases and picks, in order:
+`isDefault && accepted` → `isPrimary && accepted` → any `accepted` →
+unverified default (raises a named `sendAsUnverified` error) → give up and return
+the user's address (previous behaviour, so nothing regresses).
+
+Verified end to end against a mock that reproduces Gmail's behaviour: patching
+the user's own address returns 400, patching the alias returns 200. The worker
+listed the aliases and patched `alias@example.test` — **3/3 applied, 0 failed**.
+Under the old code that same job 400s on every user.
+
+## Defect 8 — a blank template would have wiped every signature
+
+Follow-on from defect 6: the blank rows it created are still in the database, and
+applying one would set an EMPTY signature on every recipient — clearing their
+existing signature. The worker now refuses an effectively-empty template and
+fails the job with `"template is empty - refusing to apply it (it would clear
+every signature)"`. Verified: `done=0` and **zero Gmail writes**.
+
+> **Action for existing installs:** the blank templates created before this fix
+> are still in the `signatureTemplates` collection. They can be deleted safely —
+> they are now inert (the worker refuses them), but they clutter the picker.
+
+## Verified
+
+| Suite | Result |
+|---|---|
+| `resolveSendAs` unit (alias-default, alias-only, unverified, list-failure) | 6/6 |
+| send-as end-to-end through the real worker | 5/5 |
+| blank-template browser test (right editor + guard) | 11/11 |
+| blank template refused, no Gmail write | 4/4 |
+| full bulk regression | 22/22 |

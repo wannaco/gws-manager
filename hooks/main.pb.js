@@ -1003,7 +1003,11 @@ routerAdd("GET", "/gws/bulk/status", (e) => {
         var failed = h.asArray(rec.get("failed"));
         e.json(200, { ok: true, jobId: rec.id, status: rec.get("status"),
             total: rec.get("total") || 0, done: rec.get("done") || 0,
-            failedCount: failed.length, failed: failed.slice(0, 100),
+            // `failed` is capped for the progress view; failedCount is the true
+            // total so the UI can tell there is more to fetch from
+            // /gws/bulk/failures instead of silently showing only the first 100.
+            failedCount: failed.length, failedTotal: failed.length,
+            failed: failed.slice(0, 100),
             startedAt: rec.get("startedAt"), finishedAt: rec.get("finishedAt"),
             dryRun: !!rec.get("dryRun"),
             lockedAt: rec.get("lockedAt") || null,
@@ -1271,6 +1275,92 @@ cronAdd("gws-bulk-worker", "* * * * *", () => {
             if (job) { job.set("lockedAt", null); job.set("lastError", String(err.message || err)); $app.save(job); }
         } catch (_) {}
     }
+});
+
+// List recent bulk jobs.
+//
+// Before this existed there was no way to enumerate jobs at all: the only read
+// route was /gws/bulk/status, which needs an id, and the UI kept that id in a
+// page variable. Reloading the tab lost the job permanently.
+//
+// NOTE ON ACCESS: `users.role` (owner/admin/member) exists in the schema but is
+// not enforced anywhere in this build, so this follows the same model as every
+// other route: any authenticated user sees the jobs. If role enforcement is
+// added later, this is one of the routes that should respect it.
+routerAdd("GET", "/gws/bulk/jobs", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    try {
+        var q = e.request.url.query();
+        var limit = parseInt(q.get("limit") || "25", 10);
+        if (isNaN(limit) || limit < 1) limit = 25;
+        if (limit > 100) limit = 100;
+        var offset = parseInt(q.get("offset") || "0", 10);
+        if (isNaN(offset) || offset < 0) offset = 0;
+
+        var total = $app.countRecords("bulkJobs");
+        var recs = $app.findRecordsByFilter("bulkJobs", "", "-startedAt", limit, offset);
+
+        var jobs = [];
+        for (var i = 0; i < recs.length; i++) {
+            var r = recs[i];
+            var failed = h.asArray(r.get("failed"));
+            var totalN = r.get("total") || 0;
+            var doneN = r.get("done") || 0;
+            // owner email, best-effort: the user may have been deleted
+            var who = "";
+            try {
+                var owner = $app.findRecordById("users", r.get("createdBy"));
+                who = owner.get("email") || r.get("createdBy") || "";
+            } catch (_) { who = r.get("createdBy") || ""; }
+            jobs.push({
+                jobId: r.id,
+                status: r.get("status"),
+                total: totalN,
+                done: doneN,
+                failedCount: failed.length,
+                dryRun: !!r.get("dryRun"),
+                startedAt: r.get("startedAt"),
+                finishedAt: r.get("finishedAt") || null,
+                createdBy: who,
+                pct: totalN ? Math.round((doneN / totalN) * 100) : 0,
+                etaMs: (r.get("avgMsPerUser") || 0) * Math.max(0, totalN - doneN),
+                retries: r.get("retries") || 0,
+                rateLimited: r.get("rateLimited") || 0,
+                throttledMs: r.get("throttledMs") || 0,
+                stallCount: r.get("stallCount") || 0,
+                lastError: r.get("lastError") || ""
+            });
+        }
+        e.json(200, { ok: true, total: total, limit: limit, offset: offset, jobs: jobs });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Paged view of one job's failures.
+//
+// /gws/bulk/status truncates `failed` at 100 rows, which silently hides the
+// rest of a bad run. This returns the full list in pages.
+routerAdd("GET", "/gws/bulk/failures", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    try {
+        var q = e.request.url.query();
+        var id = q.get("id");
+        if (!id) { e.json(400, { error: "id required" }); return; }
+        var limit = parseInt(q.get("limit") || "100", 10);
+        if (isNaN(limit) || limit < 1) limit = 100;
+        if (limit > 500) limit = 500;
+        var offset = parseInt(q.get("offset") || "0", 10);
+        if (isNaN(offset) || offset < 0) offset = 0;
+
+        var rec = $app.findRecordById("bulkJobs", id);
+        var all = h.asArray(rec.get("failed"));
+        var page = all.slice(offset, offset + limit);
+        e.json(200, { ok: true, jobId: rec.id, total: all.length,
+            limit: limit, offset: offset, items: page });
+    } catch (err) { e.json(404, { error: "job_not_found", message: err.message }); }
 });
 
 routerAdd("GET", "/frontend/{path...}", (e) => {

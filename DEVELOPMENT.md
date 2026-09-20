@@ -354,6 +354,8 @@ gws-manager/
 | GET | `/api/health` | Health check |
 | POST | `/api/collections/users/auth-with-password` | Login |
 | GET | `/api/gws/get-tenant` | Get tenant config (requires auth) |
+| GET | `/gws/bulk/jobs` | List bulk jobs (`limit` max 100, `offset`) |
+| GET | `/gws/bulk/failures` | Paged failures for one job (`limit` max 500) |
 | GET | `/api/gws/users` | List GWS users (requires auth + tenant config) |
 
 ### Login Flow

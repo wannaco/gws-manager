@@ -97,6 +97,26 @@
     </div>
 
     <button id="btn-bulk-apply" class="btn btn-primary w-full" onclick="executeBulkApply()" disabled>Bulk Apply</button>
+
+    <!-- ── Bulk jobs: every job, not just the one this tab started ───────── -->
+    <div class="card bg-base-100 shadow mt-4">
+      <div class="card-body py-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-semibold">Bulk jobs</span>
+          <button class="btn btn-xs btn-ghost" onclick="loadBulkJobs()">Refresh</button>
+        </div>
+        <div id="bulk-jobs-list" class="text-xs">
+          <div class="opacity-60 py-2">Loading…</div>
+        </div>
+        <div id="bulk-job-failures" class="hidden mt-3">
+          <div class="flex items-center justify-between mb-1 gap-2">
+            <span class="text-xs font-semibold" id="bulk-job-failures-title"></span>
+            <button class="btn btn-xs btn-ghost" onclick="document.getElementById('bulk-job-failures').classList.add('hidden')">Hide</button>
+          </div>
+          <div class="max-h-60 overflow-y-auto border border-base-300 rounded p-2 text-xs font-mono" id="bulk-job-failures-list"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Audience builder overlay ──────────────────────────────────────── -->

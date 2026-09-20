@@ -225,11 +225,30 @@ async function pollBulkJob(jobId) {
         const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
         $('bulk-progress-bar').value = pct;
         $('bulk-progress-pct').textContent = pct + '%';
-        $('bulk-progress-detail').textContent = `${s.done} of ${s.total} applied · ${s.failedCount} failed`;
+        // Surface the throttling/diagnostic counters the API already returns:
+        // the difference between "it is slow" and "Google is rate-limiting us"
+        // is exactly this line.
+        const bits = [`${s.done} of ${s.total} applied`];
+        if (s.failedCount) bits.push(`${s.failedCount} failed`);
+        if (s.etaMs > 0) bits.push(`~${_fmtDur(s.etaMs)} left`);
+        if (s.rateLimited) bits.push(`throttled by Google ${s.rateLimited}x`);
+        if (s.throttledMs) bits.push(`waited ${_fmtDur(s.throttledMs)}`);
+        if (s.retries) bits.push(`${s.retries} retr${s.retries === 1 ? 'y' : 'ies'}`);
+        if (s.stallCount) bits.push(`no progress for ${s.stallCount} tick${s.stallCount === 1 ? '' : 's'}`);
+        if (s.dryRun) bits.push('DRY RUN - nothing was changed');
+        $('bulk-progress-detail').textContent = bits.join(' | ');
+        // keep the job list in step while work is in flight
+        if (typeof loadBulkJobs === 'function') loadBulkJobs();
         if (s.failedCount) {
             $('bulk-failures').classList.remove('hidden');
             $('bulk-failures-title').textContent = `${s.failedCount} failed`;
-            $('bulk-failures-list').innerHTML = s.failed.map(f => `${esc(f.email)} — ${esc(f.error || 'unknown error')}`).join('<br>');
+            $('bulk-failures-list').innerHTML = s.failed.map(f =>
+                `${esc(f.email)} &mdash; ${esc(f.error || 'unknown error')}`
+                + (f.status ? ` <span class="opacity-50">[HTTP ${esc(String(f.status))}${f.reason ? ' ' + esc(f.reason) : ''}]</span>` : '')
+            ).join('<br>')
+            + (s.failedTotal > s.failed.length
+                ? `<div class="opacity-60 pt-1">Showing first ${s.failed.length} of ${s.failedTotal} &mdash; use View failures for the full list.</div>`
+                : '');
         }
         if (s.status === 'done' || s.status === 'failed') {
             $('bulk-progress-label').textContent = s.status === 'done'
@@ -248,9 +267,10 @@ async function pollBulkJob(jobId) {
 }
 
 async function retryFailedBulk() {
-    if (!window._bulkJob) return;
+    const jobId = (typeof lastBulkJob === 'function') ? lastBulkJob() : window._bulkJob;
+    if (!jobId) return;
     try {
-        const r = await api('POST', '/gws/bulk/retry', { jobId: window._bulkJob });
+        const r = await api('POST', '/gws/bulk/retry', { jobId: jobId });
         showBulkProgress(r.total);
         pollBulkJob(r.jobId);
     } catch (e) { notify(e.message, 'error'); }

@@ -248,3 +248,63 @@ Serial processing is retained **deliberately**: each user costs several HTTP
 calls, and two concurrent runs would double the load on the same per-project
 Google quota and cause more throttling for both. The fix was fairness, not
 concurrency.
+
+---
+
+# Addendum 2 — the jobs view
+
+## What was missing
+
+There was **no way to enumerate bulk jobs**. `/gws/bulk/status` requires an id,
+and the UI kept that id in a page variable (`window._bulkJob`), so:
+
+- reloading the tab **lost the job permanently** — you could not find out whether
+  a 5,000-user run had finished or died halfway;
+- a job started by one admin was invisible to every other admin;
+- there was no history, no queue, and no way to see a second queued job at all.
+
+The API also returned eight diagnostic fields (`etaMs`, `avgMsPerUser`,
+`retries`, `rateLimited`, `throttledMs`, `stallCount`, `lockedAt`, `dryRun`) that
+the UI displayed **none** of — so "Google is rate-limiting us" and "it is slow"
+looked identical.
+
+## What was added
+
+| Piece | Detail |
+|---|---|
+| `GET /gws/bulk/jobs` | Lists jobs, newest first. `limit` (max 100) + `offset`, returns `total`. Per row: status, done/total, failures, dry-run flag, who started it, timestamps, `pct`, `etaMs`, `retries`, `rateLimited`, `throttledMs`, `stallCount`, `lastError`. |
+| `GET /gws/bulk/failures` | Paged failures (`limit` max 500). `/gws/bulk/status` truncates at 100, which silently hid the rest of a bad run. |
+| **Bulk jobs panel** | Always visible in the Bulk Signatures section: every job, its badges, its diagnostics, and a **Refresh** button. |
+| **Survives reload** | The job id is kept in `localStorage` (`gws.lastBulkJob`), so a reload re-attaches the progress bar instead of orphaning the run. |
+| **Diagnostics surfaced** | The progress line now reads e.g. `142 of 300 applied · 3 failed · ~2m 10s left · throttled by Google 4x · waited 12s`. |
+| **Full failure list** | "View failures" pages through everything rather than showing the first 100. |
+
+## Access control — deliberate, and worth revisiting
+
+`users.role` (`owner`/`admin`/`member`) exists in the schema but is **not
+enforced anywhere in this build**; it is only used for Calendar ACLs. These
+routes follow the same model as every other route: any authenticated user sees
+the jobs. The route carries a comment saying so, so that if role enforcement is
+added later this does not silently become the hole.
+
+## Not done
+
+- The list loads the newest 25 with a "showing N of M" hint; there is no
+  pagination control in the UI yet (the endpoint supports it).
+- No live auto-refresh of the list itself — it refreshes while a watched job is
+  polling, and on demand via Refresh.
+
+## Verified
+
+- **12/12 endpoint checks**: auth required, `limit` clamped to 100, garbage
+  params fall back, unknown id 404s, missing id 400s, a real job appears with
+  every field the UI needs, `createdBy` resolves to an email.
+- **16/16 browser checks**: the panel renders a real row with a status badge,
+  the placeholder is replaced, `localStorage` survives a reload, a bad job id
+  shows an error rather than throwing, and `/gws/bulk/*` never returns 4xx/5xx.
+
+One test fix worth recording: the first browser run "passed" against a login that
+landed on the **Setup Your Domain** page, because the scratch user had no
+`domain` set, so `get-tenant` returned null and the dashboard never rendered.
+The assertions passed because the markup was in the DOM anyway. The seed now
+sets `users.domain`.

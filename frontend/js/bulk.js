@@ -1,5 +1,8 @@
 // ── Bulk Signature ──
 function loadBulkSection() {
+    // Always refresh the job list / re-attach to a running job, even when the
+    // editor is already initialised.
+    if (typeof onBulkSectionShown === 'function') onBulkSectionShown();
     if (window._bulkEditor) return;
     window._bulkEditor = grapesjs.init({
         container: '#bulk-toolbar',

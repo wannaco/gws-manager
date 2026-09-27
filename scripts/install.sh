@@ -22,7 +22,7 @@ err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
 # ── Config ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${INSTALL_DIR:-$HOME/gws-admin}"
-PB_VERSION="${PB_VERSION:-0.39.0}"   # app requires PocketBase 0.39.x (routerUse API)
+PB_VERSION="${PB_VERSION:-0.40.4}"   # 0.39.0 minimum (routerUse API); 0.40.x tested
 
 # ── Detect OS/Arch ──────────────────────────────────────────────────────────
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

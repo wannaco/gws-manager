@@ -19,6 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   } catch(e) { console.error('Failed to restore session', e); }
 
+  // Hide the "Create Account" tab unless this is a brand-new install.
+  if (typeof refreshSignupAvailability === 'function') refreshSignupAvailability();
+
   try { const t = localStorage.getItem('theme'); if(t) window.theme = t; } catch(e){}
   document.documentElement.setAttribute('data-theme', window.theme);
   updateThemeIcon();

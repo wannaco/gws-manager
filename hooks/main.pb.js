@@ -48,6 +48,71 @@ routerAdd("GET", "/gws/version", (e) => {
     });
 });
 
+// ==================== FIRST-RUN BOOTSTRAP ====================
+//
+// Public account creation is disabled in the collection rules
+// (backend/1786000070_lock_signup.js sets users.createRule = null). The FIRST
+// account is made through these two routes instead, and only while the `users`
+// collection is empty — so a new install can still be set up from the login
+// page, but nobody can add a second account afterwards.
+//
+// Both routes are unauthenticated on purpose: on a fresh install there is nobody
+// to authenticate yet. They leak nothing but a boolean, and a failed bootstrap
+// costs a retry.
+
+// Is first-run setup still available? The login page uses this to hide the
+// "Create Account" tab once the instance has an account, so the UI matches what
+// the API will actually allow.
+routerAdd("GET", "/gws/bootstrap-status", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var open = false;
+    try { open = $app.countRecords("users") === 0; } catch (_) { open = false; }
+    e.json(200, { ok: true, canBootstrap: open });
+});
+
+// Create the one and only self-service account. Closes permanently after that.
+routerAdd("POST", "/gws/bootstrap", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+
+    var b = JSON.parse(toString(e.request.body));
+    var email = String(b.email || "").trim().toLowerCase();
+    var pass = String(b.password || "");
+    var confirm = String(b.passwordConfirm || "");
+
+    if (!email || !pass) { e.json(400, { error: "email and password are required" }); return; }
+    if (pass.length < 8) { e.json(400, { error: "password must be at least 8 characters" }); return; }
+    if (pass !== confirm) { e.json(400, { error: "passwords do not match" }); return; }
+
+    try {
+        // Transaction + re-check inside it, so two first-visits racing cannot
+        // both see an empty collection and both create an account.
+        var createdId = "";
+        $app.runInTransaction(function (txApp) {
+            if (txApp.countRecords("users") > 0) return;
+            var coll = txApp.findCollectionByNameOrId("users");
+            var rec = new Record(coll, { email: email, verified: true });
+            rec.setPassword(pass);
+            txApp.save(rec);
+            createdId = rec.id;
+        });
+
+        if (!createdId) {
+            e.json(409, {
+                error: "already_initialised",
+                message: "This instance already has an account. Sign in instead."
+            });
+            return;
+        }
+
+        h.auditLog(createdId, "account.bootstrap", email, { firstAccount: true });
+        e.json(200, { ok: true, id: createdId, email: email });
+    } catch (err) {
+        e.json(500, { error: "internal_error", message: err.message || String(err) });
+    }
+});
+
 // ==================== CONFIG / SETUP ====================
 
 // Get current user's config

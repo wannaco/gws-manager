@@ -181,9 +181,31 @@ apply the same way) and reach it through that.
 Override with `GWS_BIND` if you deliberately need direct exposure, e.g.
 `GWS_BIND=0.0.0.0:8090 ./start.sh`. Do not do that on an untrusted network.
 
-**First time?** Register with your Google Workspace domain email, then upload a
-service-account JSON key with domain-wide delegation in **Settings**. The user
-sync then populates your domain users.
+**First time?** Create the first account on the login page (**Create Account**),
+then upload a service-account JSON key with domain-wide delegation in
+**Settings**. The user sync then populates your domain users.
+
+## Accounts
+
+There are **two** account systems, and they are deliberately separate:
+
+| | What it is | How it is created |
+|---|---|---|
+| **PocketBase superuser** | Dashboard access at `/_/` — schema, backups, recovery. Not an app login. | Set `GWS_ADMIN_EMAIL` + `GWS_ADMIN_PASSWORD`, or use the install link PocketBase prints at first boot. |
+| **App account** | Signs into the app itself. | **The first one** is created on the login page. After that, self-service signup is closed. |
+
+**Self-service signup closes permanently after the first account.** This is
+deliberate: account creation is unauthenticated, so on a fresh deployment the
+first person to reach the URL could otherwise claim the instance before you did.
+
+Creating further accounts is done from the PocketBase dashboard (`/_/`), which
+is why setting `GWS_ADMIN_EMAIL` is recommended — without it your only way into
+the dashboard is the one-time install link in the boot log.
+
+> **A note on Google sign-in.** The superuser account cannot use Google SSO —
+> PocketBase hard-disables OAuth2 on system collections. If you want admins to
+> sign in with Google, they need an app account, which is what the app-level
+> role is for.
 
 **Doing the Google side for the first time?** That is a separate setup on Google's
 side — a GCP project, three APIs, a service account, and six OAuth scopes
@@ -442,7 +464,7 @@ service-account private keys, so please redact:
 Settings → the line at the bottom of the page:
 
 ```
-f614c96 · built 2026-09-20T20:27:11Z · PocketBase 0.39.0
+f614c96 · built 2026-09-20T20:27:11Z · PocketBase 0.40.4
 ```
 
 Include it. Without a build to point at, a report is guesswork. On a build from

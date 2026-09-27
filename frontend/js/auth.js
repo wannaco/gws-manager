@@ -34,6 +34,27 @@ async function doLogin() {
   $('btn-login').disabled = false;
 }
 
+// The "Create Account" tab is only meaningful on a brand-new install. Anywhere
+// else it must be hidden, or the UI advertises something the API refuses.
+// This is a convenience only — the real gate is users.createRule = null.
+async function refreshSignupAvailability() {
+  let tries = 0;
+  const apply = async () => {
+    const tab = $('tab-register');
+    // The login component arrives via htmx, so the tab may not exist yet.
+    if (!tab) { if (tries++ < 20) setTimeout(apply, 50); return; }
+    let open = false;
+    try {
+      const s = await api('GET', '/gws/bootstrap-status');
+      open = !!s.canBootstrap;
+    } catch (_) { open = false; }
+    tab.classList.toggle('hidden', !open);
+    // Don't leave the user parked on a tab that no longer exists.
+    if (!open && window._authTab === 'register') switchAuthTab('signin');
+  };
+  apply();
+}
+
 async function doRegister() {
   const email = $('reg-email').value.trim();
   const pass = $('reg-password').value;
@@ -43,7 +64,10 @@ async function doRegister() {
   if (pass !== confirm) return showError('login-error', 'Passwords do not match.');
   try {
     $('btn-register').disabled = true;
-    const rec = await api('POST', '/api/collections/users/records', { email, password: pass, passwordConfirm: confirm });
+    // Through /gws/bootstrap, not the collection route: public creation is
+    // disabled (backend/1786000070_lock_signup.js). The endpoint accepts the
+    // FIRST account only and returns 409 afterwards.
+    await api('POST', '/gws/bootstrap', { email, password: pass, passwordConfirm: confirm });
     // Auto-login after registration
     const auth = await api('POST', '/api/collections/users/auth-with-password', { identity: email, password: pass });
     window.token = auth.token;
@@ -53,6 +77,8 @@ async function doRegister() {
   } catch(e) {
     showError('login-error', e.message);
     $('btn-register').disabled = false;
+    // A 409 means someone else finished setup; stop offering the tab.
+    if (String(e.message || '').toLowerCase().includes('already')) refreshSignupAvailability();
   }
 }
 
@@ -63,6 +89,7 @@ function doLogout() {
   $('login-email').value = ''; $('login-password').value = '';
   $('reg-email').value = ''; $('reg-password').value = ''; $('reg-password-confirm').value = '';
   switchAuthTab('signin');
+  refreshSignupAvailability();
 }
 
 async function afterLogin() {

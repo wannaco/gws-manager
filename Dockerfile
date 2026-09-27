@@ -4,7 +4,7 @@
 # Build:  docker build -t gws-admin .
 # Run:    docker run -p 8090:8090 -v gws-data:/app/data -e ENCRYPTION_KEY=... gws-admin
 
-ARG PB_VERSION=0.39.0
+ARG PB_VERSION=0.40.4
 
 # ─── Stage 1: Build the RS256 signer from source ──────────────────
 # PocketBase 0.39 removed rsaSign, so JWT signing for Google service

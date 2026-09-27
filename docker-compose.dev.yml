@@ -37,6 +37,9 @@ services:
       # makes every stored service-account key unreadable.
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-local-dev-only-not-for-production}
       - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+      # Optional. A dashboard account at /_/ for local use.
+      - GWS_ADMIN_EMAIL=${GWS_ADMIN_EMAIL:-}
+      - GWS_ADMIN_PASSWORD=${GWS_ADMIN_PASSWORD:-}
 
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/health"]

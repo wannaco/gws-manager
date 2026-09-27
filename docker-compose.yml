@@ -56,6 +56,11 @@ services:
       - "ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env - generate one with openssl rand -hex 32}"
       # Optional. Restricts cross-origin API access to a single origin.
       - GWS_ALLOWED_ORIGIN=${GWS_ALLOWED_ORIGIN:-}
+      # Optional. Creates the PocketBase dashboard account at boot. Recommended:
+      # self-service app signup closes after the first account, so without this
+      # your only way into /_/ is the one-time install link in the boot log.
+      - GWS_ADMIN_EMAIL=${GWS_ADMIN_EMAIL:-}
+      - GWS_ADMIN_PASSWORD=${GWS_ADMIN_PASSWORD:-}
 
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/health"]

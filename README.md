@@ -207,6 +207,32 @@ the dashboard is the one-time install link in the boot log.
 > sign in with Google, they need an app account, which is what the app-level
 > role is for.
 
+### Locked out of the dashboard?
+
+Setting `GWS_ADMIN_EMAIL` + `GWS_ADMIN_PASSWORD` is enough on a **fresh** install.
+On an install that already has a superuser, that pair is applied **once** by a
+migration — so changing `GWS_ADMIN_PASSWORD` afterwards does nothing on its own.
+That is deliberate: the first migration never overwrites a password you changed
+on purpose.
+
+To regain access, add a new migration that upserts it (this is exactly what
+`backend/1786000072_admin_upsert.js` does — copy it with a later timestamp and
+redeploy), or run the CLI on the host:
+
+```bash
+# container
+docker exec -it <container> /app/pocketbase superuser upsert you@example.com 'new-password'
+
+# bare metal
+cd ~/gws-admin && ./pocketbase superuser upsert you@example.com 'new-password'
+```
+
+Why it can come to this: `_superusers` cannot use OAuth, and PocketBase's
+one-time install link is only printed at **first** boot (while the collection is
+empty) — once it expires there is no web route back in. **Set
+`GWS_ADMIN_EMAIL`/`GWS_ADMIN_PASSWORD` before your first deploy**, or keep the
+CLI to hand.
+
 **Doing the Google side for the first time?** That is a separate setup on Google's
 side — a GCP project, three APIs, a service account, and six OAuth scopes
 authorised in the Admin Console. Full walkthrough, automated and manual:

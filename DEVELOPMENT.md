@@ -273,6 +273,32 @@ editor. There is an explicit ladder in `styles/index.css`; keep new overlays on
 it. And note that "not `hidden`" is not the same as "reachable": assert with
 `document.elementFromPoint()`, not by checking a class.
 
+### 10. `onBootstrap` PANICS on database access — it crashes the server at boot
+
+Do not do `$app` work inside `onBootstrap`. It does not throw a catchable JS
+error; it takes the process down:
+
+```
+onBootstrap((e) => { $app.findAuthRecordByEmail("_superusers", x); ... })
+  ->  panic: runtime error: invalid memory address or nil pointer dereference
+  ->  the server never starts
+```
+
+Verified on both 0.39.0 and 0.40.4. The stack goes through
+`core.(*BaseApp).Bootstrap`, so it is PocketBase's own bootstrap chain rather
+than anything the handler did wrong.
+
+There is no alternative lifecycle hook either: the JSVM exposes `onBootstrap`
+but **not** `onServe` or `onAfterBootstrap` — those fail at load with
+`ReferenceError: onServe is not defined`, even though the names appear in the
+generated `pb_data/types.d.ts`. Do not trust that file as an API listing.
+
+**Use a migration instead.** Migrations run after the database is ready and are
+the only reliable point at which `$app` is safe. The corollary: migrations run
+**once**, so a migration is not a repeatable "every boot" hook — for a reset that
+must be re-runnable, add a new migration, or use the CLI:
+`pocketbase superuser upsert EMAIL PASS`.
+
 ## Self-hosting: what the compose files guarantee
 
 If you change `docker-compose.yml`, `caddy/Caddyfile` or the `scripts/`, these

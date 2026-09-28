@@ -295,6 +295,7 @@ works (the documented `openssl rand -hex 32` output is ideal).
 - **Calendar sharing** — calendar ACL rules
 - **User sync** — Directory API sync into a local cache (fast, offline-friendly)
 - **Audit webhook** — optional webhook URL receives audit events (domain.connect, signature.update, bulkApply, …)
+- **User roles** — `admin`, or `user` for helpdesk: read the domain and manage signatures without being able to change who has access to a mailbox. See [App roles](#app-roles-user-and-admin).
 
 ## Architecture
 

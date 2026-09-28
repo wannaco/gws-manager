@@ -11,6 +11,47 @@
 // or every route fails with PocketBase's generic 400.
 var h = require(__hooks + "/../lib/helpers.js");
 
+// ==================== ROLE CHANGE GUARD ====================
+//
+// users.updateRule is "id = @request.auth.id", which lets ANY signed-in user
+// PATCH their own record. PocketBase rules are record-level, so they cannot say
+// "anything except this field" — without this hook a plain user can just send
+// {"role":"admin"} to their own record and promote themselves. Verified: it
+// succeeds, and the new role persists across a re-login.
+//
+// So the field is guarded here instead. Only an admin (or a PocketBase
+// superuser) may change `role`; anyone else gets 403.
+//
+// `e.auth` is the caller — NOT e.httpContext, which is undefined inside this
+// hook (probed). e.record.original() gives the pre-update value.
+//
+// Fails CLOSED: if the comparison itself throws, the change is treated as a
+// role change and refused. A guard that silently stops firing is worse than
+// none, because it looks protected.
+onRecordUpdateRequest((e) => {
+    var changed = false;
+    try {
+        var newRole = String(e.record.getString("role") || "");
+        var oldRole = "";
+        try { oldRole = String(e.record.original().getString("role") || ""); } catch (_) { oldRole = ""; }
+        changed = (newRole !== oldRole);
+    } catch (_) {
+        changed = true;
+    }
+    if (!changed) return;
+
+    var allowed = false;
+    try { if (e.hasSuperuserAuth()) allowed = true; } catch (_) { allowed = false; }
+    if (!allowed) {
+        try {
+            if (e.auth && String(e.auth.getString("role") || "") === "admin") allowed = true;
+        } catch (_) { allowed = false; }
+    }
+    if (!allowed) {
+        throw new ForbiddenError("Only an administrator can change a user's role.");
+    }
+}, "users");
+
 // ==================== SIMPLE TEST ROUTES ====================
 routerAdd("GET", "/gws/ping2", (e) => { e.json(200, { ok: true, msg: "no-cors" }); });
 
@@ -92,7 +133,9 @@ routerAdd("POST", "/gws/bootstrap", (e) => {
         $app.runInTransaction(function (txApp) {
             if (txApp.countRecords("users") > 0) return;
             var coll = txApp.findCollectionByNameOrId("users");
-            var rec = new Record(coll, { email: email, verified: true });
+            // The first account IS the operator: without admin, a fresh
+            // install could never configure its domain.
+            var rec = new Record(coll, { email: email, verified: true, role: "admin" });
             rec.setPassword(pass);
             txApp.save(rec);
             createdId = rec.id;
@@ -131,6 +174,10 @@ routerAdd("GET", "/gws/get-tenant", (e) => {
                 gcpProjectId: rec.get("gcpProjectId") || "",
                 webhookUrl: rec.get("webhookUrl") || "",
                 hasServiceAccountKey: h.decryptSAKey(rec) !== null,
+                // The UI gates sections on this. Never trusted for enforcement —
+                // every admin route re-checks server-side via requireAdmin().
+                role: u.role,
+                isAdmin: !!u.isAdmin,
             }
         });
     } catch (_) {
@@ -143,6 +190,7 @@ routerAdd("POST", "/gws/setup", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     try {
         var coll = $app.findCollectionByNameOrId("users");
@@ -165,6 +213,7 @@ routerAdd("POST", "/gws/save-domain-config", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var dom = b.domain, ae = b.adminEmail, sak = b.serviceAccountKey;
     if (!dom || !ae || !sak) { e.json(400, { error: "All fields required" }); return; }
@@ -369,6 +418,7 @@ routerAdd("POST", "/gws/delegation", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail, act = b.action, de = b.delegateEmail;
     if (!ue || !act) { e.json(400, { error: "userEmail and action required" }); return; }
@@ -413,6 +463,7 @@ routerAdd("POST", "/gws/forwarding", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail, act = b.action;
     if (!ue || !act) { e.json(400, { error: "userEmail and action required" }); return; }
@@ -458,6 +509,7 @@ routerAdd("POST", "/gws/filters", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail, act = b.action, crit = b.criteria, fid = b.filterId;
     if (!ue) { e.json(400, { error: "userEmail required" }); return; }
@@ -500,6 +552,7 @@ routerAdd("POST", "/gws/vacation", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: mailbox setting
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail;
     if (!ue) { e.json(400, { error: "userEmail required" }); return; }
@@ -540,6 +593,7 @@ routerAdd("POST", "/gws/send-as", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail, act = b.action;
     if (!ue || !act) { e.json(400, { error: "userEmail and action required" }); return; }
@@ -757,6 +811,7 @@ routerAdd("POST", "/gws/signature-templates", (e) => {
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var coll = $app.findCollectionByNameOrId("signatureTemplates");
     try {
+        if (act === "delete" && !h.requireAdmin(e, u)) return;   // shared content
         if (act === "delete") {
             if (!b.templateId) { e.json(400, { error: "templateId required" }); return; }
             var delRec = $app.findRecordById("signatureTemplates", b.templateId); $app.delete(delRec);
@@ -800,6 +855,7 @@ routerAdd("POST", "/gws/calendar-acl", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var ue = b.userEmail, act = b.action;
     if (!ue || !act) { e.json(400, { error: "userEmail and action required" }); return; }
@@ -881,6 +937,7 @@ routerAdd("POST", "/gws/setup-gcp-project", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var dom = b.domain, ae = b.adminEmail, tok = b.gcpAccessToken, pid = b.projectId;
     if (!dom || !ae || !tok || !pid) { e.json(400, { error: "All fields required" }); return; }
@@ -912,6 +969,7 @@ routerAdd("POST", "/gws/webhook-config", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var act = b.action;
     if (!act) { e.json(400, { error: "action required" }); return; }
@@ -1019,6 +1077,7 @@ routerAdd("POST", "/gws/audience/resolve", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var b = JSON.parse(toString(e.request.body));
     try {
@@ -1037,6 +1096,7 @@ routerAdd("POST", "/gws/bulk/start", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var b = JSON.parse(toString(e.request.body));
     // Either an inline signature (usual: from the editor) or a saved template.
@@ -1114,6 +1174,7 @@ routerAdd("POST", "/gws/bulk/retry", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     if (!b.jobId) { e.json(400, { error: "jobId required" }); return; }
     try {
@@ -1557,6 +1618,7 @@ routerAdd("POST", "/gws/bulk/schedules", (e) => {
     var h = require(__hooks + "/../lib/helpers.js");
     if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
     var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var t = h.getUserConfig(e, u.id); if (!t) return;
     var b = JSON.parse(toString(e.request.body));
     var act = b.action || "create";

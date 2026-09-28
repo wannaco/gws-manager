@@ -299,6 +299,63 @@ the only reliable point at which `$app` is safe. The corollary: migrations run
 must be re-runnable, add a new migration, or use the CLI:
 `pocketbase superuser upsert EMAIL PASS`.
 
+## App roles and the route guard
+
+`users.role` is `"user"` (helpdesk) or `"admin"`. Enforcement is in
+`hooks/main.pb.js` via **`h.requireAdmin(e, u)`**, called immediately after
+`authUser()` in every admin route — 15 call sites.
+
+A `user` may read the domain and edit signature content. They may **not** change
+mailbox access (delegation, Send As, forwarding, filters, Calendar ACLs), set
+vacation responders, run or schedule bulk work, resolve audiences, or touch the
+service-account key / GCP project / webhook.
+
+`test_roles.py` enumerates every route and asserts the expected status for each
+role, **including that an admin is not blocked**. A new route that forgets its
+guard fails that test rather than shipping open — which is the whole point, since
+a missing guard is invisible.
+
+### The trap: a role field on `users` is not protected by itself
+
+`users.updateRule` is `id = @request.auth.id`, which lets **any signed-in user
+PATCH their own record**. PocketBase rules are record-level, so they cannot
+express "anything except this field". Verified: a plain user can send
+`{"role":"admin"}` to their own record, get `200`, and keep the new role across
+a re-login.
+
+So `role` is guarded by an `onRecordUpdateRequest` hook, not by a rule:
+
+- `e.auth` is the caller. **`e.httpContext` is undefined inside that hook** —
+  probed; using it throws and the guard silently never applies.
+- `e.record.original()` gives the pre-update value, which is how a *role change*
+  is distinguished from an ordinary field edit.
+- It **fails closed**: if the comparison throws, the change is treated as a role
+  change and refused. A guard that stops firing is worse than no guard, because
+  it looks protected.
+
+### Roles are assigned in the dashboard, not the app
+
+`users.listRule` / `viewRule` / `updateRule` are all `id = @request.auth.id`, so
+an admin **cannot** edit another user's record through the REST API (404). Role
+assignment therefore happens in `/_/` or the CLI. Widening those rules would let
+an admin read and modify every user record — a deliberate decision, not a
+freebie, so it is left alone for now.
+
+### The admin env closes bootstrap as a side effect
+
+The app-roles migration mirrors each PocketBase superuser into a `users` record
+with `role=admin`, so admins get Google SSO (impossible on `_superusers`). One
+consequence is worth knowing: **setting `GWS_ADMIN_EMAIL` on a fresh deploy now
+closes `/gws/bootstrap` immediately**, because an app account exists from boot.
+That removes the window in which a stranger could claim an unclaimed instance.
+
+#### — and one gotcha that cost a deploy earlier
+
+Because the mirror doubles as the lockout guard, the migration also promotes the
+**oldest user** to admin if no admin exists. Without that, adding `role` to an
+install that already had users would default everyone to `user` — including the
+operator, locking them out of their own instance.
+
 ## Self-hosting: what the compose files guarantee
 
 If you change `docker-compose.yml`, `caddy/Caddyfile` or the `scripts/`, these

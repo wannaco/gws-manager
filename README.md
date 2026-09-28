@@ -207,6 +207,35 @@ the dashboard is the one-time install link in the boot log.
 > sign in with Google, they need an app account, which is what the app-level
 > role is for.
 
+### App roles: `user` and `admin`
+
+Every app account has a role. It is **not** the same thing as the PocketBase
+superuser above — that is infrastructure; this is what someone may do in the app.
+
+| | `user` (helpdesk) | `admin` |
+|---|---|---|
+| See the domain's users, org units, groups | ✅ | ✅ |
+| Read job history and failures | ✅ | ✅ |
+| Edit signatures and templates | ✅ | ✅ |
+| Change who can read a mailbox — delegation, Send As, forwarding, filters, Calendar sharing | ❌ | ✅ |
+| Set vacation responders, sync the directory | ❌ | ✅ |
+| Run or schedule bulk work, resolve audiences | ❌ | ✅ |
+| Replace the service-account key, GCP project, webhook | ❌ | ✅ |
+
+**Why the split.** Without it, every account that can sign in is a full
+administrator: a helpdesk user could add themselves as a delegate on any
+mailbox — reading that person's mail — or apply a signature to the whole domain.
+
+The line is drawn at *harm*, not seniority: a `user` cannot change who has access
+to a mailbox, cannot act as someone else, and cannot do anything domain-wide.
+Changing a signature is allowed because it grants no access and destroys nothing.
+
+**Assigning roles.** In the PocketBase dashboard (`/_/`), edit the user's record
+and set `role`. Setting `GWS_ADMIN_EMAIL` at first deploy also creates an admin.
+
+The API enforces this on every admin route; the UI additionally hides what the
+role cannot do. See `DEVELOPMENT.md`.
+
 ### Locked out of the dashboard?
 
 Setting `GWS_ADMIN_EMAIL` + `GWS_ADMIN_PASSWORD` is enough on a **fresh** install.

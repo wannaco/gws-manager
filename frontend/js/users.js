@@ -59,10 +59,14 @@ function openUserDetail(email) {
   $('section-user-detail').classList.remove('hidden');
   $('detail-name').textContent = u.name || u.email;
   $('detail-email').textContent = u.email;
-  window.activeUserTab = 'delegation';
+  // A helpdesk user has no Delegation tab (it grants mailbox access), so land
+  // them on Signatures instead of a tab that is hidden and would 403.
+  const canAdmin = typeof isAdmin === 'function' && isAdmin();
+  const firstTab = canAdmin ? 'delegation' : 'signatures';
+  window.activeUserTab = firstTab;
   killSig(); document.querySelectorAll('#section-user-detail .tab').forEach(t => t.classList.remove('tab-active'));
-  document.querySelector('[data-utab="delegation"]')?.classList.add('tab-active');
-  loadDelegation();
+  document.querySelector('[data-utab="' + firstTab + '"]')?.classList.add('tab-active');
+  if (canAdmin) loadDelegation(); else loadSignature();
 }
 
 function closeUserDetail() {

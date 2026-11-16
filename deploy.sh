@@ -82,18 +82,32 @@ fi
 
 install_compose_plugin() {
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+    sudo apt-get update
+    if sudo apt-get install -y docker-compose-plugin 2>/dev/null || sudo apt-get install -y docker-compose-v2 2>/dev/null; then
+      return 0
+    fi
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y docker-compose-plugin
+    sudo dnf install -y docker-compose-plugin && return 0
   elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y docker-compose-plugin
+    sudo yum install -y docker-compose-plugin && return 0
   elif command -v apk >/dev/null 2>&1; then
-    sudo apk add --no-cache docker-cli-compose
+    sudo apk add --no-cache docker-cli-compose && return 0
   elif command -v brew >/dev/null 2>&1; then
-    brew install docker-compose
-  else
-    return 1
+    brew install docker-compose && return 0
   fi
+
+  # Fallback: install the official Docker Compose v2 CLI plugin binary on Linux
+  if [ "$(uname -s)" = "Linux" ] && command -v curl >/dev/null 2>&1; then
+    local arch
+    arch=$(uname -m)
+    info "Installing Docker Compose v2 CLI plugin for Linux ($arch)..."
+    sudo mkdir -p /usr/local/lib/docker/cli-plugins
+    sudo curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${arch}" \
+      -o /usr/local/lib/docker/cli-plugins/docker-compose || return 1
+    sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    return 0
+  fi
+  return 1
 }
 
 if docker compose version >/dev/null 2>&1; then

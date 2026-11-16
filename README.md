@@ -483,8 +483,19 @@ user at a time, or in bulk.
 
 | | |
 |---|---|
-| ![Users list](docs/screenshots/01-users.png) | ![Editing one user's signature](docs/screenshots/02-user-signature.png) |
+| ![Users list](docs/screenshots/01-users.png) | ![Editing one user's signature](docs/screenshots/03-user-signature.png) |
 | **Users** — every account in the domain with its org unit, admin flag and phone. | **One user's signature** — the same editor serves a single user or an audience. |
+
+### Signature templates and vacation scheduling
+
+22 built-in templates, built as fixed-width email-safe tables so a signature
+renders the same in Gmail, Outlook and Apple Mail. Placeholders are filled per
+person. Vacation responders can be pushed now or scheduled for a date.
+
+| | |
+|---|---|
+| ![Signature template gallery](docs/screenshots/02-signature-gallery.png) | ![Vacation responder with scheduled pushes](docs/screenshots/07-vacation-schedules.png) |
+| **Signature gallery** — 22 templates, filtered by style, with a live preview. | **Vacation responder** — plus scheduled pushes that go live on a date you pick. |
 
 ### Bulk apply
 
@@ -494,19 +505,21 @@ retry, and a dry run that renders every signature without calling Google.
 
 | | |
 |---|---|
-| ![Bulk signatures](docs/screenshots/03-bulk-signatures.png) | ![Audience builder](docs/screenshots/04-audience.png) |
+| ![Bulk signatures](docs/screenshots/05-bulk-signatures.png) | ![Audience builder](docs/screenshots/10-audience.png) |
 | **Bulk signatures** — the editor, the saved templates, and the apply control. | **Audience** — org units, groups and a text filter, with a live recipient count. |
 
-### Schedules and job history
+**Send-As preflight** — a read-only check you can run before applying: each
+recipient's default Send-As alias and whether that address is verified. It
+reports; it changes nothing.
 
 | | |
 |---|---|
-| ![Schedules](docs/screenshots/05-schedules.png) | ![Schedule editor](docs/screenshots/06-schedule-editor.png) |
-| **Schedules** — daily, weekday, monthly or interval, with run counters. | **A schedule** — frequency, time, audience and template. |
+| ![Send-As preflight report](docs/screenshots/04-send-as-audit.png) | ![Schedules](docs/screenshots/06-schedules.png) |
+| **Send-As preflight** — the default alias per recipient and its verification status. | **Schedules** — daily, weekday, monthly or interval, with run counters. |
 
 | | |
 |---|---|
-| ![Bulk jobs](docs/screenshots/07-bulk-jobs.png) | ![Settings](docs/screenshots/08-settings.png) |
+| ![Bulk jobs](docs/screenshots/08-bulk-jobs.png) | ![Settings](docs/screenshots/09-settings.png) |
 | **Bulk jobs** — every run, with progress and the Google throttling readout. | **Settings** — connect the domain, set the webhook, and read the build you are running. |
 
 > **Note on bulk:** bulk apply covers **signatures**. Delegation, forwarding,

@@ -87,16 +87,20 @@ install_compose_plugin() {
       return 0
     fi
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y docker-compose-plugin && return 0
+    if sudo dnf install -y docker-compose-plugin 2>/dev/null; then return 0; fi
   elif command -v yum >/dev/null 2>&1; then
-    sudo yum install -y docker-compose-plugin && return 0
+    if sudo yum install -y docker-compose-plugin 2>/dev/null; then return 0; fi
+  elif command -v zypper >/dev/null 2>&1; then
+    if sudo zypper install -y docker-compose 2>/dev/null; then return 0; fi
+  elif command -v pacman >/dev/null 2>&1; then
+    if sudo pacman -Sy --noconfirm docker-compose 2>/dev/null; then return 0; fi
   elif command -v apk >/dev/null 2>&1; then
-    sudo apk add --no-cache docker-cli-compose && return 0
+    if sudo apk add --no-cache docker-cli-compose 2>/dev/null; then return 0; fi
   elif command -v brew >/dev/null 2>&1; then
-    brew install docker-compose && return 0
+    if brew install docker-compose; then return 0; fi
   fi
 
-  # Fallback: install the official Docker Compose v2 CLI plugin binary on Linux
+  # Universal fallback: install the official Docker Compose v2 CLI plugin binary on Linux
   if [ "$(uname -s)" = "Linux" ] && command -v curl >/dev/null 2>&1; then
     local arch
     arch=$(uname -m)

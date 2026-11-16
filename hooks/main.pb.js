@@ -82,6 +82,7 @@ routerAdd("GET", "/gws/version", (e) => {
     var u = h.authUser(e); if (!u) return;
     var g = function (k) { try { return $os.getenv(k) || ""; } catch (err) { return ""; } };
     e.json(200, {
+        version: g("GWS_APP_VERSION") || "1.0.0",
         commit: g("GWS_GIT_SHA").slice(0, 7) || "unknown",
         commitFull: g("GWS_GIT_SHA") || "unknown",
         buildDate: g("GWS_BUILD_DATE") || "unknown",
@@ -165,6 +166,7 @@ routerAdd("GET", "/gws/get-tenant", (e) => {
     var u = h.authUser(e); if (!u) return;
     try {
         var rec = $app.findRecordById("users", u.id);
+        var sa = h.decryptSAKey(rec);
         e.json(200, {
             ok: true,
             tenant: {
@@ -173,7 +175,8 @@ routerAdd("GET", "/gws/get-tenant", (e) => {
                 adminEmail: rec.get("adminEmail") || "",
                 gcpProjectId: rec.get("gcpProjectId") || "",
                 webhookUrl: rec.get("webhookUrl") || "",
-                hasServiceAccountKey: h.decryptSAKey(rec) !== null,
+                hasServiceAccountKey: sa !== null,
+                saClientEmail: (sa && sa.client_email) ? sa.client_email : "",
                 // The UI gates sections on this. Never trusted for enforcement —
                 // every admin route re-checks server-side via requireAdmin().
                 role: u.role,
@@ -216,20 +219,25 @@ routerAdd("POST", "/gws/save-domain-config", (e) => {
     if (!h.requireAdmin(e, u)) return;   // admin-only: see DEVELOPMENT.md
     var b = JSON.parse(toString(e.request.body));
     var dom = b.domain, ae = b.adminEmail, sak = b.serviceAccountKey;
-    if (!dom || !ae || !sak) { e.json(400, { error: "All fields required" }); return; }
+    if (!dom || !ae) { e.json(400, { error: "Domain and admin email are required" }); return; }
     var t = h.getUserConfig(e, u.id); if (!t) return;
-    if (!sak.client_email || !sak.private_key) { e.json(400, { error: "Invalid service account key" }); return; }
-    // Save first, test later (test is informational, not a blocker)
     var coll = $app.findCollectionByNameOrId("users"); var rec = $app.findRecordById(coll, u.id);
-    rec.set("domain", dom); rec.set("adminEmail", ae); rec.set("serviceAccountKey", h.encryptSAKey(sak)); $app.save(rec);
+    var effectiveSak = sak || h.decryptSAKey(rec);
+    if (!effectiveSak || !effectiveSak.client_email || !effectiveSak.private_key) {
+        e.json(400, { error: "Valid service account key is required" }); return;
+    }
+    // Save first, test later (test is informational, not a blocker)
+    rec.set("domain", dom); rec.set("adminEmail", ae);
+    if (sak) rec.set("serviceAccountKey", h.encryptSAKey(sak));
+    $app.save(rec);
     h.auditLog(u.id, "domain.connect", u.email || u.id, { domain: dom, adminEmail: ae });
     var testOk = false, testError = "";
     try {
-        h.googleApiCall(sak, ae, ["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+        h.googleApiCall(effectiveSak, ae, ["https://www.googleapis.com/auth/admin.directory.user.readonly"],
             "https://admin.googleapis.com/admin/directory/v1/users?domain=" + encodeURIComponent(dom) + "&maxResults=1");
         testOk = true;
     } catch (err) { testError = err.message || String(err); }
-    e.json(200, { ok: true, domain: dom, adminEmail: ae, connectionTest: testOk, connectionError: testError || null });
+    e.json(200, { ok: true, domain: dom, adminEmail: ae, saClientEmail: effectiveSak.client_email, connectionTest: testOk, connectionError: testError || null });
 });
 
 // ==================== GWS OPERATIONS ====================
@@ -478,6 +486,12 @@ routerAdd("POST", "/gws/forwarding", (e) => {
             h.auditLog(u.id, "forwarding.createAddress", u.email || u.id, { userEmail: ue, forwardingEmail: b.forwardingEmail });
             e.json(200, { ok: true, forwardingAddress: r }); return;
         }
+        if (act === "deleteAddress") {
+            if (!b.forwardingEmail) { e.json(400, { error: "forwardingEmail required" }); return; }
+            h.googleApiCall(sa, ue, sc, "https://gmail.googleapis.com/gmail/v1/users/" + eu + "/settings/forwardingAddresses/" + encodeURIComponent(b.forwardingEmail), "DELETE");
+            h.auditLog(u.id, "forwarding.deleteAddress", u.email || u.id, { userEmail: ue, forwardingEmail: b.forwardingEmail });
+            e.json(200, { ok: true, action: "deleted", forwardingEmail: b.forwardingEmail }); return;
+        }
         if (act === "updateAutoForwarding") {
             var r = h.googleApiCall(sa, ue, sc, "https://gmail.googleapis.com/gmail/v1/users/" + eu + "/settings/autoForwarding", "PUT",
                 { enabled: !!b.enabled, emailAddress: b.emailAddress, disposition: b.disposition || "leaveInInbox" });
@@ -561,15 +575,152 @@ routerAdd("POST", "/gws/vacation", (e) => {
     var sc = ["https://www.googleapis.com/auth/gmail.settings.basic"];
     var eu = encodeURIComponent(ue);
     try {
+        if (b.startTime && b.endTime && Number(b.startTime) > Number(b.endTime)) {
+            e.json(400, { error: "End date must be after start date" }); return;
+        }
         var s = { enableAutoReply: !!b.enableAutoReply, responseSubject: b.responseSubject || "", responseBodyHtml: b.responseBodyHtml || "" };
-        if (b.startTime) s.startTime = b.startTime;
-        if (b.endTime) s.endTime = b.endTime;
+        if (b.startTime) s.startTime = String(b.startTime);
+        if (b.endTime) s.endTime = String(b.endTime);
         if (typeof b.restrictToContacts === "boolean") s.restrictToContacts = b.restrictToContacts;
         if (typeof b.restrictToDomain === "boolean") s.restrictToDomain = b.restrictToDomain;
         var r = h.googleApiCall(sa, ue, sc, "https://gmail.googleapis.com/gmail/v1/users/" + eu + "/settings/vacation", "PUT", s);
         h.auditLog(u.id, "vacation.update", u.email || u.id, { userEmail: ue, enableAutoReply: s.enableAutoReply });
         e.json(200, { ok: true, vacation: r });
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Vacation schedules: list for a user
+routerAdd("GET", "/gws/vacation-schedules", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "GET, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;
+    var ue = e.request.url.query().get("userEmail");
+    if (!ue) { e.json(400, { error: "userEmail required" }); return; }
+    try {
+        var recs = $app.findRecordsByFilter(
+            "vacationSchedules",
+            'userEmail="' + String(ue).replace(/"/g, '\\"') + '"',
+            "-pushAt", 50, 0
+        );
+        e.json(200, {
+            ok: true,
+            items: recs.map(function (r) {
+                return {
+                    id: r.id,
+                    userEmail: r.get("userEmail"),
+                    status: r.get("status"),
+                    pushAt: r.get("pushAt"),
+                    payload: r.get("payload"),
+                    lastError: r.get("lastError") || "",
+                    sentAt: r.get("sentAt") || ""
+                };
+            })
+        });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Vacation schedules: create or cancel
+routerAdd("POST", "/gws/vacation-schedules", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;
+    var b = JSON.parse(toString(e.request.body));
+    var act = b.action || "create";
+    try {
+        if (act === "cancel") {
+            if (!b.id) { e.json(400, { error: "id required" }); return; }
+            var rec = $app.findRecordById("vacationSchedules", b.id);
+            if (rec.get("status") !== "pending") {
+                e.json(400, { error: "Only pending schedules can be cancelled" }); return;
+            }
+            rec.set("status", "cancelled");
+            $app.save(rec);
+            h.auditLog(u.id, "vacation.scheduleCancel", u.email || u.id, { id: rec.id, userEmail: rec.get("userEmail") });
+            e.json(200, { ok: true }); return;
+        }
+
+        var ue = String(b.userEmail || "").trim();
+        var pushAtRaw = b.pushAt;
+        if (!ue || !pushAtRaw) { e.json(400, { error: "userEmail and pushAt required" }); return; }
+        var pushDate = new Date(pushAtRaw);
+        if (isNaN(pushDate.getTime())) { e.json(400, { error: "Invalid pushAt date" }); return; }
+        if (b.startTime && b.endTime && Number(b.startTime) > Number(b.endTime)) {
+            e.json(400, { error: "End date must be after start date" }); return;
+        }
+
+        var payload = {
+            enableAutoReply: !!b.enableAutoReply,
+            responseSubject: b.responseSubject || "",
+            responseBodyHtml: b.responseBodyHtml || ""
+        };
+        if (b.startTime) payload.startTime = String(b.startTime);
+        if (b.endTime) payload.endTime = String(b.endTime);
+        if (typeof b.restrictToContacts === "boolean") payload.restrictToContacts = b.restrictToContacts;
+        if (typeof b.restrictToDomain === "boolean") payload.restrictToDomain = b.restrictToDomain;
+
+        var coll = $app.findCollectionByNameOrId("vacationSchedules");
+        var nr = new Record(coll);
+        nr.set("userEmail", ue);
+        nr.set("status", "pending");
+        nr.set("pushAt", pushDate);
+        nr.set("payload", payload);
+        nr.set("createdBy", u.id);
+        $app.save(nr);
+        h.auditLog(u.id, "vacation.scheduleCreate", u.email || u.id, { id: nr.id, userEmail: ue, pushAt: pushDate.toISOString() });
+        e.json(200, { ok: true, id: nr.id });
+    } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Cron: push due vacation responder schedules every minute
+cronAdd("gws-vacation-scheduler", "* * * * *", () => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    var pending = [];
+    try {
+        pending = $app.findRecordsByFilter("vacationSchedules", 'status = "pending"', "+pushAt", 25, 0);
+    } catch (_) { return; }
+    if (!pending || !pending.length) return;
+
+    var nowMs = Date.now();
+    var sc = ["https://www.googleapis.com/auth/gmail.settings.basic"];
+    for (var i = 0; i < pending.length; i++) {
+        var rec = pending[i];
+        var pushMs = h.dateMs(rec.get("pushAt"));
+        if (!pushMs || pushMs > nowMs) continue;
+
+        var ue = rec.get("userEmail");
+        try {
+            var ucfg = $app.findRecordById("users", rec.get("createdBy"));
+            var sa = ucfg ? h.decryptSAKey(ucfg) : null;
+            if (!sa) throw new Error("service account unavailable");
+
+            var rawPayload = rec.get("payload");
+            var payload = typeof rawPayload === "string" ? JSON.parse(rawPayload) : (rawPayload || {});
+            var s = {
+                enableAutoReply: !!payload.enableAutoReply,
+                responseSubject: payload.responseSubject || "",
+                responseBodyHtml: payload.responseBodyHtml || ""
+            };
+            if (payload.startTime) s.startTime = String(payload.startTime);
+            if (payload.endTime) s.endTime = String(payload.endTime);
+            if (typeof payload.restrictToContacts === "boolean") s.restrictToContacts = payload.restrictToContacts;
+            if (typeof payload.restrictToDomain === "boolean") s.restrictToDomain = payload.restrictToDomain;
+
+            h.googleApiCall(sa, ue, sc,
+                "https://gmail.googleapis.com/gmail/v1/users/" + encodeURIComponent(ue) + "/settings/vacation",
+                "PUT", s);
+            rec.set("status", "sent");
+            rec.set("sentAt", new Date());
+            rec.set("lastError", "");
+            $app.save(rec);
+            h.auditLog(rec.get("createdBy") || "system", "vacation.scheduleSent", "cron", { id: rec.id, userEmail: ue });
+        } catch (err) {
+            rec.set("status", "failed");
+            rec.set("lastError", String((err && err.message) || err));
+            $app.save(rec);
+        }
+    }
 });
 
 // Send-As: list
@@ -879,6 +1030,9 @@ routerAdd("POST", "/gws/calendar-acl", (e) => {
         }
         if (act === "remove") {
             if (!b.ruleId) { e.json(400, { error: "ruleId required" }); return; }
+            if (String(b.ruleId).indexOf("domain:") === 0 || String(b.ruleId) === "default") {
+                e.json(400, { error: "Domain-wide and default calendar sharing rules are protected and cannot be removed." }); return;
+            }
             h.googleApiCall(sa, ue, sc, base + "/" + b.ruleId, "DELETE");
             h.auditLog(u.id, "calendar.acl.remove", u.email || u.id, { userEmail: ue, ruleId: b.ruleId });
             e.json(200, { ok: true, action: "removed", ruleId: b.ruleId }); return;
@@ -1135,6 +1289,83 @@ routerAdd("POST", "/gws/bulk/start", (e) => {
         e.json(200, { ok: true, jobId: rec.id, total: list.length,
             chunkSize: rec.get("chunkSize"), dryRun: !!b.dryRun });
     } catch (err) { e.json(500, { error: "internal_error", message: err.message }); }
+});
+
+// Read-only Send-As preflight audit (batched up to 50 users per request so it
+// never hits an HTTP timeout). Uses existing gmail.settings.basic/sharing scopes.
+routerAdd("POST", "/gws/bulk/sendas-audit", (e) => {
+    var h = require(__hooks + "/../lib/helpers.js");
+    if (h.addCorsHeaders(e, "POST, OPTIONS")) return;
+    var u = h.authUser(e); if (!u) return;
+    if (!h.requireAdmin(e, u)) return;
+    var t = h.getUserConfig(e, u.id); if (!t) return;
+    var sa = h.decryptSAKey(t); if (!sa) { e.json(400, { error: "no_service_account" }); return; }
+
+    var b = JSON.parse(toString(e.request.body));
+    var list = h.asArray(b.emails).slice(0, 50);
+    if (!list.length) { e.json(400, { error: "emails[] required" }); return; }
+
+    var sc = ["https://www.googleapis.com/auth/gmail.settings.basic",
+              "https://www.googleapis.com/auth/gmail.settings.sharing"];
+    var items = [];
+
+    for (var i = 0; i < list.length; i++) {
+        var email = String(list[i] || "").trim();
+        if (!email) continue;
+        try {
+            var token = h.googleAccessToken(sa, email, sc);
+            var url = "https://gmail.googleapis.com/gmail/v1/users/" +
+                      encodeURIComponent(email) + "/settings/sendAs";
+            var resp = h.googleApiRequest(token, url, "GET");
+            var arr = h.asArray(resp && resp.sendAs);
+            var accepted = function (a) {
+                return !a.verificationStatus || a.verificationStatus === "accepted";
+            };
+            var pick = null;
+            for (var k = 0; k < arr.length; k++) if (arr[k].isDefault && accepted(arr[k])) { pick = arr[k]; break; }
+            if (!pick) for (var k = 0; k < arr.length; k++) if (arr[k].isPrimary && accepted(arr[k])) { pick = arr[k]; break; }
+            if (!pick) for (var k = 0; k < arr.length; k++) if (accepted(arr[k])) { pick = arr[k]; break; }
+
+            var unverifiedDef = null;
+            if (!pick) {
+                for (var k = 0; k < arr.length; k++) if (arr[k].isDefault) { unverifiedDef = arr[k]; break; }
+            }
+
+            var target = pick ? (pick.sendAsEmail || email) : (unverifiedDef ? (unverifiedDef.sendAsEmail || email) : email);
+            var status = unverifiedDef
+                ? "unverified"
+                : (String(target).toLowerCase() !== email.toLowerCase() ? "mismatch" : "ok");
+
+            items.push({
+                email: email,
+                status: status,
+                defaultSendAs: target,
+                verificationStatus: pick ? (pick.verificationStatus || "accepted") : (unverifiedDef ? (unverifiedDef.verificationStatus || "pending") : "unknown"),
+                aliasCount: arr.length,
+                aliases: arr.map(function (a) {
+                    return {
+                        sendAsEmail: a.sendAsEmail || "",
+                        isDefault: !!a.isDefault,
+                        isPrimary: !!a.isPrimary,
+                        verificationStatus: a.verificationStatus || "accepted"
+                    };
+                }),
+                error: unverifiedDef ? ("Default send-as " + target + " is not verified (" + (unverifiedDef.verificationStatus || "pending") + ")") : ""
+            });
+        } catch (err) {
+            items.push({
+                email: email,
+                status: "error",
+                defaultSendAs: "",
+                verificationStatus: "",
+                aliasCount: 0,
+                aliases: [],
+                error: String((err && err.message) || err)
+            });
+        }
+    }
+
+    e.json(200, { ok: true, items: items });
 });
 
 // Poll progress.

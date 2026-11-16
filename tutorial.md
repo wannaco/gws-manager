@@ -4,97 +4,55 @@
 
 This tutorial will help you create and configure a Google Cloud Platform project for GWS Manager. It takes about 5 minutes.
 
-<walkthrough-tutorial-duration duration="5"></walkthrough-tutorial-duration>
+<walkthrough-tutorial-duration duration="3"></walkthrough-tutorial-duration>
 
 ## What you'll do
 
-- Run the automated setup script
-- Authorize domain-wide delegation in Google Admin Console
-- Verify your setup
+1. Run **one script** (`bash setup.sh`) — it handles authentication, project creation, APIs, service account, key download, and verification automatically.
+2. Paste the **Client ID** and **OAuth scopes** into Google Admin Console.
+3. Drag & drop the downloaded `.json` key file into GWS Manager.
 
 Click **Next** to begin.
 
-## Step 1: Link Your Account to gcloud
+## Step 1: Run the Setup Script
 
-Cloud Shell is already authenticated via your browser session, but gcloud CLI needs the account explicitly registered in its config. Run:
-
-```bash
-gcloud auth login
-```
-
-Type **Y** at the prompt — this does **not** re-authenticate you. It just links your existing Cloud Shell session to gcloud's configuration.
-
-## Step 2: Run the Automated Setup
-
-Run the setup script — it handles everything automatically:
+Run this single command in the Cloud Shell terminal:
 
 ```bash
 bash setup.sh
 ```
 
-The script will:
-- Create a new GCP project
+The script will automatically:
+- Link your Google account to `gcloud` (if not already active)
+- Create a new GCP project (press Enter for the default name)
 - Enable required APIs (Admin SDK, Gmail, Calendar)
-- Create a service account
-- Enable domain-wide delegation
-- Generate a JSON key
-- Handle org policy blockers automatically
-- Display your **Client ID** and **credentials**
+- Create the service account & handle org policy blockers if needed
+- Verify everything and **download the `.json` key file** straight to your computer
+- Print your **Client ID** and a **single comma-separated OAuth scopes line**
 
-<walkthrough-footnote>If the script asks for a project name, just press Enter to use the default.</walkthrough-footnote>
+## Step 2: Authorize Domain-Wide Delegation
 
-## Step 3: Authorize Domain-Wide Delegation (Manual Step)
-
-<walkthrough-warning-title>Important: Manual Step Required</walkthrough-warning-title>
+<walkthrough-warning-title>One Manual Step in Google Admin Console</walkthrough-warning-title>
 <walkthrough-warning>
-You must complete this step in the Google Admin Console for your domain.
+Google does not provide an API for Domain-Wide Delegation, so this step is done once in your Workspace Admin Console.
 </walkthrough-warning>
 
-1. Go to [Google Admin Console](https://admin.google.com) → Security → API Controls → Domain-wide Delegation
-2. Click "Manage Domain-Wide Delegation"
-3. Click "Add new"
-4. Enter the **Client ID** shown by the setup script:
+1. Open [Domain-Wide Delegation](https://admin.google.com/ac/owl/domainwidedelegation) in Google Admin Console
+2. Click **Add new**
+3. Paste the **Client ID** printed by `setup.sh`
+4. Paste the **single comma-separated OAuth Scopes line** printed by `setup.sh` (all 6 scopes in one paste):
 
-```bash
-echo "Client ID: $(gcloud iam service-accounts describe gws-admin-sa@$(gcloud config get-value project).iam.gserviceaccount.com --format='value(oauth2ClientId)')"
+```text
+https://www.googleapis.com/auth/gmail.settings.basic,https://www.googleapis.com/auth/gmail.settings.sharing,https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.user,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/calendar
 ```
 
-5. Add these OAuth scopes (one per line):
-   - `https://www.googleapis.com/auth/gmail.settings.basic`
-   - `https://www.googleapis.com/auth/gmail.settings.sharing`
-   - `https://www.googleapis.com/auth/admin.directory.user.readonly`
-   - `https://www.googleapis.com/auth/admin.directory.user`
-   - `https://www.googleapis.com/auth/admin.directory.group.readonly`
-   - `https://www.googleapis.com/auth/calendar`
-
-  > All six are required. `admin.directory.user` (without `.readonly`) is the
-  > **write** scope used when adding a send-as alias — omitting it makes that one
-  > feature fail with a 403 while everything else works.
-
-6. Click "Authorize"
-
-## Step 4: Verify Your Setup
-
-Run the verification script to confirm everything is configured:
-
-```bash
-bash verify.sh
-```
-
-This checks:
-- Project exists and is active
-- APIs are enabled
-- Service account exists with domain-wide delegation
-- Key file is valid
-- Client ID is retrievable
+5. Click **Authorize**
 
 <walkthrough-success-title>Setup Complete!</walkthrough-success-title>
 
-## Next Steps
+## Next Step
 
-1. **Copy the JSON key** — the setup script displayed it and saved it to a file
-2. **Complete domain-wide delegation** in Step 3 (if you haven't already)
-3. **Go to GWS Manager** → Settings → paste your credentials and connect your domain
+Return to **GWS Manager** and **drag & drop** the downloaded `.json` key file into the Setup screen.
 
 <walkthrough-conclusion>
 **Need help?** Contact support at support@thinkcloud.dev

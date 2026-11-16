@@ -44,6 +44,20 @@ is why it must be stored somewhere durable that survives losing the server.
 
 ## Quick Start (Docker — recommended)
 
+### Fastest way: Guided Deploy (`deploy.sh`)
+
+You don't even need to clone the full repository on a production server:
+
+```bash
+mkdir -p gws-manager && cd gws-manager
+curl -fsSL https://raw.githubusercontent.com/wannaco/gws-manager/main/deploy.sh -o deploy.sh
+bash deploy.sh
+```
+
+`deploy.sh` lets you choose your mode (VPS with automatic HTTPS, behind an existing reverse proxy, or local-only), generates and displays `ENCRYPTION_KEY`, writes `.env`, downloads only the needed Compose/Caddy files if not in a repo checkout, and starts the container.
+
+### Manual Compose Setup
+
 There are **three compose files**. They do different jobs and are separate files
 on purpose (not profiles), so there is no flag to forget and no way to run the
 server file without TLS.
@@ -191,8 +205,8 @@ There are **two** account systems, and they are deliberately separate:
 
 | | What it is | How it is created |
 |---|---|---|
-| **PocketBase superuser** | Dashboard access at `/_/` — schema, backups, recovery. Not an app login. | Set `GWS_ADMIN_EMAIL` + `GWS_ADMIN_PASSWORD`, or use the install link PocketBase prints at first boot. |
-| **App account** | Signs into the app itself. | **The first one** is created on the login page. After that, self-service signup is closed. |
+| **PocketBase superuser** (`/_/` dashboard) | Infrastructure & database admin (`_superusers` collection) — schema, backups, creating additional app users. **Cannot** log into the app UI at `/`. | Set `GWS_ADMIN_EMAIL` + `GWS_ADMIN_PASSWORD` in `.env` before first boot, click the one-time install link in the boot log, or run `./pocketbase superuser upsert EMAIL PASS`. |
+| **App account** (`/` app UI) | Signs into GWS Admin (`users` collection). Single-tenant: manages one Google Workspace domain per deployment. | On a **fresh install**, `/` opens a one-time **Initial Setup** screen to create the first app `admin` account. Afterwards, `/` only shows **Sign In**. |
 
 **Self-service signup closes permanently after the first account.** This is
 deliberate: account creation is unauthenticated, so on a fresh deployment the
@@ -230,8 +244,7 @@ The line is drawn at *harm*, not seniority: a `user` cannot change who has acces
 to a mailbox, cannot act as someone else, and cannot do anything domain-wide.
 Changing a signature is allowed because it grants no access and destroys nothing.
 
-**Assigning roles.** In the PocketBase dashboard (`/_/`), edit the user's record
-and set `role`. Setting `GWS_ADMIN_EMAIL` at first deploy also creates an admin.
+**Assigning roles.** In the PocketBase dashboard (`/_/`), open the `users` collection, edit a user's record, and set `role` (`admin` or `user`). Note that `GWS_ADMIN_EMAIL` / `GWS_ADMIN_PASSWORD` only creates the PocketBase superuser at `/_/` — the first app `admin` is created through the one-time Initial Setup screen at `/`.
 
 The API enforces this on every admin route; the UI additionally hides what the
 role cannot do. See `DEVELOPMENT.md`.

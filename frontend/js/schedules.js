@@ -329,11 +329,7 @@ async function openScheduleEditor(id) {
     const host = document.getElementById('sch-editor-html');
     host.innerHTML = '';
     setTimeout(() => {
-        window._scheduleEditor = grapesjs.init({
-            container: host, fromElement: false, height: '220px', width: '100%',
-            storageManager: { type: 'none' },
-            canvas: { styles: ['body { font-family: sans-serif; font-size:14px; }'] },
-        });
+        window._scheduleEditor = createSignatureEditor(host, '', { height: '220px' });
         // Reflect the RESTORED mode first: the checkbox was set programmatically
         // above, so its change handler never ran and the editor would not look
         // (or behave as) disabled. This also loads the template when following.
@@ -344,7 +340,7 @@ async function openScheduleEditor(id) {
                 .then(full => {
                     const html = (full.schedule && full.schedule.html) || '';
                     if (html && window._scheduleEditor) {
-                        window._scheduleEditor.setComponents(cleanHtmlString(html));
+                        setEditorHtml(window._scheduleEditor, cleanHtmlString(html));
                     }
                 })
                 .catch(() => {});
@@ -459,7 +455,7 @@ function loadTemplateIntoEditor() {
         updateScheduleSourceNote('That template is empty — add content to it first.');
         return;
     }
-    window._scheduleEditor.setComponents(cleanHtmlString(html));
+    setEditorHtml(window._scheduleEditor, cleanHtmlString(html));
     updateScheduleSourceNote();
 }
 
@@ -475,8 +471,11 @@ function onScheduleTemplateLiveChange() {
     const host = document.getElementById('sch-editor-html');
     if (host) {
         host.classList.toggle('gws-disabled', live);
-        const pane = host.querySelector('.gjs-editor');
-        if (pane) pane.style.pointerEvents = live ? 'none' : '';
+        host.style.pointerEvents = live ? 'none' : '';
+    }
+    const varRow = document.getElementById('sch-var-row');
+    if (varRow) {
+        varRow.querySelectorAll('button').forEach(b => { b.disabled = live; });
     }
     if (live) loadTemplateIntoEditor();
     updateScheduleSourceNote();

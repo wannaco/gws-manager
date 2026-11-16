@@ -38,6 +38,72 @@ function applyRoleGating() {
   }
 }
 
+// ── Hash Routing ──────────────────────────────────────────────────────────────
+const VALID_SECTIONS = ['gws-users', 'sig-bulk', 'bulk-jobs', 'schedules', 'settings'];
+const VALID_USER_TABS = ['delegation', 'forwarding', 'filters', 'vacation', 'sendas', 'signatures', 'calendar'];
+
+function setRouteHash(path) {
+  const target = '#' + String(path || '/users').replace(/^#/, '');
+  if (window.location.hash === target) return;
+  window._expectedRouteHash = target;
+  window.location.hash = target;
+}
+
+function parseRouteHash() {
+  const raw = (window.location.hash || '').replace(/^#\/?/, '');
+  if (!raw) return { section: 'gws-users' };
+  const parts = raw.split('/').map(p => {
+    try { return decodeURIComponent(p); } catch (_) { return p; }
+  });
+  const head = parts[0];
+  if (head === 'users' || head === 'gws-users') {
+    if (parts[1]) {
+      const tab = VALID_USER_TABS.indexOf(parts[2]) !== -1 ? parts[2] : null;
+      return { section: 'user-detail', email: parts[1], tab };
+    }
+    return { section: 'gws-users' };
+  }
+  if (VALID_SECTIONS.indexOf(head) !== -1) {
+    return { section: head };
+  }
+  return { section: 'gws-users' };
+}
+
+function whenDashboardReady(cb) {
+  let tries = 0;
+  const check = () => {
+    if ($('section-gws-users') && $('section-user-detail')) {
+      cb();
+    } else if (tries++ < 150) {
+      setTimeout(check, 30);
+    }
+  };
+  check();
+}
+
+async function applyRouteFromHash(opts) {
+  const route = parseRouteHash();
+  if (route.section === 'user-detail' && route.email) {
+    if (!window.domainUsers || !window.domainUsers.length) {
+      await loadUsers();
+    }
+    openUserDetail(route.email, route.tab, opts);
+  } else {
+    navTo(route.section || 'gws-users', opts);
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if (window._expectedRouteHash === window.location.hash) {
+    window._expectedRouteHash = null;
+    return;
+  }
+  window._expectedRouteHash = null;
+  if (window.token && window.tenant?.domain && !$('page-dashboard')?.classList.contains('hidden')) {
+    applyRouteFromHash({ skipHash: true });
+  }
+});
+
 function showDashboard() {
   hideAll();
   $('page-dashboard').classList.remove('hidden');
@@ -47,34 +113,53 @@ function showDashboard() {
   $('nav-role') && ($('nav-role').textContent = window.tenant?.isAdmin ? 'admin' : 'helpdesk');
   // hide what this role's API calls would refuse
   applyRoleGating();
-  navTo('gws-users');
-  const status = document.getElementById('users-sync-status');
-  if (status) status.textContent = 'auto-sync pending...';
-  loadUsers();
-  setTimeout(() => syncUsers(), 500);
+  whenDashboardReady(async () => {
+    const route = parseRouteHash();
+    if (route.section === 'user-detail' && route.email) {
+      navTo('gws-users', { skipHash: true });
+      await loadUsers();
+      openUserDetail(route.email, route.tab, { skipHash: true });
+    } else {
+      navTo(route.section || 'gws-users', { skipHash: true });
+      if (!window.location.hash) setRouteHash('/users');
+      loadUsers();
+    }
+    const status = document.getElementById('users-sync-status');
+    if (status) status.textContent = 'auto-sync pending...';
+    setTimeout(() => syncUsers(), 500);
+  });
 }
 
-function navTo(section) {
+function navTo(section, opts) {
   // Same gate as the hidden buttons — a section that would 403 should not
   // be reachable at all.
   if (!isAdmin() && ADMIN_ONLY_SECTIONS.indexOf(section) !== -1) {
     if (typeof notify === 'function') notify('Administrator access required.', 'error');
     section = 'gws-users';
   }
+  if (section !== 'user-detail' && typeof killSig === 'function') killSig();
   ['gws-users','settings','user-detail', 'sig-bulk','bulk-jobs','schedules'].forEach(s => $('section-'+s)?.classList.add('hidden'));
   $('section-'+section)?.classList.remove('hidden');
   document.querySelectorAll('.sidebar-item').forEach(a => a.classList.remove('active'));
   $('sidebar-'+section)?.classList.add('active');
-  if (section === 'sig-bulk') loadBulkSection();
+  if (!opts || !opts.skipHash) {
+    setRouteHash(section === 'gws-users' ? '/users' : '/' + section);
+  }
+  if (section === 'sig-bulk') {
+    loadBulkSection();
+    if (typeof loadTemplatesList === 'function') loadTemplatesList();
+  }
   if (section === 'bulk-jobs' && typeof onBulkJobsSectionShown === 'function') onBulkJobsSectionShown();
   if (section === 'schedules' && typeof onSchedulesSectionShown === 'function') onSchedulesSectionShown();
   // The settings section is loaded via htmx, so #app-version may not exist yet
   // when this runs. Retry briefly rather than doing nothing silently.
-  if (section === 'settings' && typeof loadVersion === 'function') {
+  if (section === 'settings') {
     let tries = 0;
     const wait = () => {
-      if ($('app-version')) loadVersion();
-      else if (tries++ < 20) setTimeout(wait, 50);
+      if ($('app-version')) {
+        if (typeof loadSettings === 'function') loadSettings();
+        if (typeof loadVersion === 'function') loadVersion();
+      } else if (tries++ < 20) setTimeout(wait, 50);
     };
     wait();
   }

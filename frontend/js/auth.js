@@ -4,16 +4,18 @@ window._authTab = 'signin';
 function switchAuthTab(tab) {
   window._authTab = tab;
   hideError('login-error');
-  if (tab === 'signin') {
-    $('tab-signin').classList.add('tab-active');
-    $('tab-register').classList.remove('tab-active');
-    $('auth-signin-fields').classList.remove('hidden');
-    $('auth-register-fields').classList.add('hidden');
+  const setupNote = $('auth-setup-note');
+  const heading = $('auth-heading');
+  if (tab === 'register') {
+    $('auth-signin-fields')?.classList.add('hidden');
+    $('auth-register-fields')?.classList.remove('hidden');
+    if (setupNote) setupNote.classList.remove('hidden');
+    if (heading) heading.textContent = 'Initial Setup';
   } else {
-    $('tab-register').classList.add('tab-active');
-    $('tab-signin').classList.remove('tab-active');
-    $('auth-signin-fields').classList.add('hidden');
-    $('auth-register-fields').classList.remove('hidden');
+    $('auth-signin-fields')?.classList.remove('hidden');
+    $('auth-register-fields')?.classList.add('hidden');
+    if (setupNote) setupNote.classList.add('hidden');
+    if (heading) heading.textContent = 'GWS Admin';
   }
 }
 
@@ -34,23 +36,19 @@ async function doLogin() {
   $('btn-login').disabled = false;
 }
 
-// The "Create Account" tab is only meaningful on a brand-new install. Anywhere
-// else it must be hidden, or the UI advertises something the API refuses.
-// This is a convenience only — the real gate is users.createRule = null.
+// One-time initial setup: if the instance has 0 app users, show the Create
+// Admin Account screen directly. Once an account exists, show only Sign In.
 async function refreshSignupAvailability() {
   let tries = 0;
   const apply = async () => {
-    const tab = $('tab-register');
-    // The login component arrives via htmx, so the tab may not exist yet.
-    if (!tab) { if (tries++ < 20) setTimeout(apply, 50); return; }
+    const fields = $('auth-signin-fields');
+    if (!fields) { if (tries++ < 20) setTimeout(apply, 50); return; }
     let open = false;
     try {
       const s = await api('GET', '/gws/bootstrap-status');
       open = !!s.canBootstrap;
     } catch (_) { open = false; }
-    tab.classList.toggle('hidden', !open);
-    // Don't leave the user parked on a tab that no longer exists.
-    if (!open && window._authTab === 'register') switchAuthTab('signin');
+    switchAuthTab(open ? 'register' : 'signin');
   };
   apply();
 }
@@ -84,7 +82,11 @@ async function doRegister() {
 
 function doLogout() {
   window.token = null; window.user = null; window.tenant = null; window.domainUsers = [];
+  window._detailUser = null;
   localStorage.removeItem('auth');
+  if (window.location.hash) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
   hideAll(); $('page-login').classList.remove('hidden');
   $('login-email').value = ''; $('login-password').value = '';
   $('reg-email').value = ''; $('reg-password').value = ''; $('reg-password-confirm').value = '';

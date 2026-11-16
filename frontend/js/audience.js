@@ -210,9 +210,11 @@ function updateAudienceSummary() {
     const n = (window._bulkRecipients || []).length;
     const box = $('audience-summary');
     var applyBtn = $('btn-bulk-apply');
+    var auditBtn = $('btn-sendas-audit');
     if (!n) {
         box.classList.add('hidden');
         if (applyBtn) applyBtn.disabled = true;
+        if (auditBtn) auditBtn.disabled = true;
         return;
     }
     box.classList.remove('hidden');
@@ -224,6 +226,7 @@ function updateAudienceSummary() {
     if (window._aud.excludes.length) parts.push(`${window._aud.excludes.length} excluded`);
     $('audience-desc-line').textContent = parts.length ? parts.join(' · ') + ' — direct group members only' : '';
     if (applyBtn) applyBtn.disabled = false;
+    if (auditBtn) auditBtn.disabled = false;
 }
 
 // ── job progress ─────────────────────────────────────────────────────────────

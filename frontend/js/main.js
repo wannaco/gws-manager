@@ -46,7 +46,11 @@ function toggleTheme() {
   updateThemeIcon();
 }
 function updateThemeIcon() {
-  document.getElementById('theme-icon').textContent = window.theme === 'light' ? '🌙' : '☀️';
+  const el = document.getElementById('theme-icon');
+  if (!el) return;
+  el.innerHTML = window.theme === 'light'
+    ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>'
+    : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>';
 }
 
 // ── Helpers ──
@@ -77,6 +81,37 @@ function setupBack() {
   hideError('setup-error');
   $('setup-step-2').classList.add('hidden');
   $('setup-step-1').classList.remove('hidden');
+}
+
+function handleSaKeyDrop(e) {
+  e.preventDefault();
+  const dz = $('setup-sa-dropzone');
+  if (dz) dz.classList.remove('border-primary', 'bg-primary/5');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) handleSaKeyFile(file);
+}
+
+function handleSaKeyFile(file) {
+  if (!file) return;
+  hideError('setup-error');
+  const statusEl = $('setup-sa-file-status');
+  const reader = new FileReader();
+  reader.onload = () => {
+    const raw = String(reader.result || '').trim();
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed.client_email || !parsed.private_key) {
+        return showError('setup-error', 'That JSON file is missing client_email or private_key.');
+      }
+      $('setup-sa-key').value = raw;
+      if (statusEl) {
+        statusEl.innerHTML = `<span class="text-success font-medium">Loaded ${file.name}</span> (${parsed.client_email})`;
+      }
+    } catch (_) {
+      showError('setup-error', 'Could not parse JSON from ' + file.name + '.');
+    }
+  };
+  reader.readAsText(file);
 }
 
 async function doSetup() {

@@ -1,3 +1,23 @@
+/* ── Theme refinement ─────────────────────────────────────────────────────────
+   Replace DaisyUI's default electric-violet primary with a clean cobalt blue
+   and give the app canvas a subtle neutral surface so cards/panels pop. */
+[data-theme="light"] {
+  --p: 54.6% 0.215 262.88;
+  --pc: 100% 0 0;
+  --in: 58.8% 0.158 241.97;
+  --inc: 100% 0 0;
+}
+[data-theme="dark"] {
+  --p: 62.3% 0.188 259.81;
+  --pc: 100% 0 0;
+}
+
+body {
+  background-color: oklch(var(--b2) / 0.45);
+  color: oklch(var(--bc));
+  -webkit-font-smoothing: antialiased;
+}
+
 /* Sidebar: always visible on desktop, slide-in on mobile */
 #app-sidebar {
   position: fixed;
@@ -5,7 +25,7 @@
   left: 0;
   bottom: 0;
   transform: translateX(-100%);
-  transition: transform 200ms;
+  transition: transform 200ms ease;
   z-index: 50;
 }
 #app-sidebar.sidebar-open {
@@ -29,8 +49,38 @@
 /* Main Styles */
 .fade-in { animation: fadeIn .15s ease-out; }
 @keyframes fadeIn { from { opacity:0; transform:translateY(4px) } to { opacity:1; transform:translateY(0) } }
-.mono { font-family: ui-monospace, monospace; }
-.sidebar-item.active { background: oklch(var(--p)/0.15); color: oklch(var(--p)); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  padding: .5rem .75rem;
+  border-radius: .5rem;
+  font-size: .875rem;
+  font-weight: 500;
+  color: oklch(var(--bc) / 0.78);
+  transition: background-color 120ms ease, color 120ms ease;
+  cursor: pointer;
+}
+.sidebar-item:hover {
+  background: oklch(var(--b2));
+  color: oklch(var(--bc));
+}
+.sidebar-item.active {
+  background: oklch(var(--p) / 0.12);
+  color: oklch(var(--p));
+  font-weight: 600;
+}
+.sidebar-item svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.sidebar-item.active svg {
+  opacity: 1;
+}
 
 /* Enhanced Code Editor Styles */
 .code-editor-wrapper {
@@ -142,6 +192,7 @@
 #schedule-editor { z-index: 100; }
 #audience-overlay { z-index: 120; }
 #modal-overlay   { z-index: 130; }
+#template-gallery-overlay { z-index: 140; }
 
 /* A checkbox with an explanatory line, used where a single tick changes what
    gets applied (e.g. "follow this template"). */
@@ -159,3 +210,105 @@
 
 /* An editor that is being deliberately ignored must LOOK ignored. */
 .gws-disabled { opacity: .45; }
+
+/* Template selector bar above signature editors */
+.gws-template-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+
+/* Variable placeholder chips */
+.gws-var-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .375rem;
+  margin-top: .625rem;
+}
+.gws-var-label {
+  font-size: .75rem;
+  font-weight: 500;
+  opacity: .55;
+  margin-right: .25rem;
+}
+.gws-var-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: .2rem .5rem;
+  border-radius: .375rem;
+  border: 1px solid oklch(var(--b3));
+  background: oklch(var(--b2) / 0.65);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .75rem;
+  line-height: 1.25rem;
+  color: oklch(var(--bc) / 0.85);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+.gws-var-chip:hover:not(:disabled) {
+  border-color: oklch(var(--p) / 0.5);
+  background: oklch(var(--p) / 0.08);
+  color: oklch(var(--p));
+}
+.gws-var-chip:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* Soft info callout (replaces harsh solid alert-info banners) */
+.gws-callout {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  padding: .75rem 1rem;
+  border-radius: .625rem;
+  border: 1px solid oklch(var(--p) / 0.22);
+  background: oklch(var(--p) / 0.07);
+  font-size: .8125rem;
+  color: oklch(var(--bc));
+}
+.gws-callout svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: oklch(var(--p));
+  flex-shrink: 0;
+}
+
+/* Editor host container */
+.gws-editor-wrap {
+  border: 1px solid oklch(var(--b3));
+  border-radius: .625rem;
+  overflow: hidden;
+  background: oklch(var(--b1));
+}
+.gws-editor-wrap .sun-editor {
+  border: 0 !important;
+  font-family: inherit !important;
+}
+.gws-editor-wrap .sun-editor .se-toolbar {
+  background-color: oklch(var(--b2) / 0.65);
+  outline: 1px solid oklch(var(--b3));
+}
+[data-theme="dark"] .gws-editor-wrap .sun-editor {
+  background-color: oklch(var(--b1));
+  color: oklch(var(--bc));
+}
+[data-theme="dark"] .gws-editor-wrap .sun-editor .se-btn {
+  color: oklch(var(--bc));
+}
+[data-theme="dark"] .gws-editor-wrap .sun-editor .se-btn:hover,
+[data-theme="dark"] .gws-editor-wrap .sun-editor .se-btn.active {
+  background-color: oklch(var(--b3));
+}
+[data-theme="dark"] .gws-editor-wrap .sun-editor .se-wrapper-inner {
+  background-color: #ffffff;
+  color: #222222;
+}
+/* Constrain newly created SunEditor tables (which default to width:100%) to
+   standard fixed email-signature width inside the visual editor as well. */
+.gws-editor-wrap .sun-editor .se-wrapper-inner table {
+  max-width: 520px !important;
+}

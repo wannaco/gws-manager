@@ -51,33 +51,51 @@ function renderUsers() {
 }
 
 // ── User detail ──
-function openUserDetail(email) {
-  const u = domainUsers.find(x => x.email === email);
-  if (!u) return;
+function openUserDetail(email, preferredTab, opts) {
+  const u = domainUsers.find(x => x.email && x.email.toLowerCase() === String(email || '').toLowerCase());
+  if (!u) {
+    if (opts && opts.skipHash && typeof navTo === 'function') {
+      navTo('gws-users');
+    }
+    return;
+  }
   window._detailUser = u;
-  $('section-gws-users').classList.add('hidden');
+  ['gws-users','settings','sig-bulk','bulk-jobs','schedules'].forEach(s => $('section-'+s)?.classList.add('hidden'));
   $('section-user-detail').classList.remove('hidden');
+  document.querySelectorAll('.sidebar-item').forEach(a => a.classList.remove('active'));
+  $('sidebar-gws-users')?.classList.add('active');
   $('detail-name').textContent = u.name || u.email;
   $('detail-email').textContent = u.email;
   // A helpdesk user has no Delegation tab (it grants mailbox access), so land
   // them on Signatures instead of a tab that is hidden and would 403.
   const canAdmin = typeof isAdmin === 'function' && isAdmin();
-  const firstTab = canAdmin ? 'delegation' : 'signatures';
-  window.activeUserTab = firstTab;
-  killSig(); document.querySelectorAll('#section-user-detail .tab').forEach(t => t.classList.remove('tab-active'));
-  document.querySelector('[data-utab="' + firstTab + '"]')?.classList.add('tab-active');
-  if (canAdmin) loadDelegation(); else loadSignature();
+  let tab = preferredTab || (canAdmin ? 'delegation' : 'signatures');
+  if (!canAdmin && typeof ADMIN_ONLY_TABS !== 'undefined' && ADMIN_ONLY_TABS.indexOf(tab) !== -1) {
+    tab = 'signatures';
+  }
+  switchUserTab(tab, opts);
 }
 
 function closeUserDetail() {
-  $('section-user-detail').classList.add('hidden');
-  $('section-gws-users').classList.remove('hidden');
+  if (typeof navTo === 'function') {
+    navTo('gws-users');
+  } else {
+    $('section-user-detail').classList.add('hidden');
+    $('section-gws-users').classList.remove('hidden');
+  }
 }
 
-function switchUserTab(tab) {
-  activeUserTab = tab;
+function switchUserTab(tab, opts) {
+  const canAdmin = typeof isAdmin === 'function' && isAdmin();
+  if (!canAdmin && typeof ADMIN_ONLY_TABS !== 'undefined' && ADMIN_ONLY_TABS.indexOf(tab) !== -1) {
+    tab = 'signatures';
+  }
+  window.activeUserTab = tab;
   killSig(); document.querySelectorAll('#section-user-detail .tab').forEach(t => t.classList.remove('tab-active'));
   document.querySelector('[data-utab="'+tab+'"]')?.classList.add('tab-active');
+  if ((!opts || !opts.skipHash) && window._detailUser && typeof setRouteHash === 'function') {
+    setRouteHash('/users/' + encodeURIComponent(window._detailUser.email) + '/' + tab);
+  }
   const fns = { delegation:loadDelegation, forwarding:loadForwarding, filters:loadFilters, vacation:loadVacation, sendas:loadSendAs, signatures:loadSignature, calendar:loadCalendarAcl };
   if (fns[tab]) fns[tab]();
 }

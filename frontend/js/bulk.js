@@ -4,84 +4,47 @@ function loadBulkSection() {
     // editor is already initialised.
     if (typeof onBulkSectionShown === 'function') onBulkSectionShown();
     if (window._bulkEditor) return;
-    window._bulkEditor = grapesjs.init({
-        container: '#bulk-toolbar',
-        fromElement: false,
-        height: '300px',
-        width: '100%',
-        storageManager: { type: 'none' },
-        canvas: {
-          styles: [
-            'body { font-family: sans-serif; font-size:14px; color:#222; max-width:600px; margin:0 auto; }',
-            'table { width:100% !important; }'
-          ]
-        }
-    });
-    
-    // Remove GrapesJS's default (broken) code-view button, replace with our working one
-    const setupBulkCodeButton = () => {
-        const panel = window._bulkEditor.Panels.getPanel('options');
-        if (panel) {
-            panel.get('buttons').remove(panel.get('buttons').where({ command: 'gjs-open-code' }));
-            panel.get('buttons').remove(panel.get('buttons').where({ command: 'export-template' }));
-            panel.get('buttons').remove(panel.get('buttons').where({ id: 'export-template' }));
-            if (!panel.get('buttons').where({ id: 'bulk-open-code' }).length) {
-                panel.get('buttons').add({
-                    id: 'bulk-open-code',
-                    className: 'fa fa-code',
-                    command: 'bulk-open-code',
-                    attributes: { title: 'Edit HTML' }
-                });
-            }
-        }
-        // Also hide via DOM as fallback in case the panel button removal didn't take
-        const toolbar = document.querySelector('#bulk-toolbar .gjs-pn-options');
-        if (toolbar) {
-            toolbar.querySelectorAll('[data-command="gjs-open-code"]').forEach(el => el.remove());
-        }
-    };
-    window._bulkEditor.Commands.add('bulk-open-code', {
-        run: function(editor, sender) {
-            sender && sender.set('active', 0);
-            openBulkCodeEditor();
-        }
-    });
-    window._bulkEditor.on('load', setupBulkCodeButton);
-    setTimeout(setupBulkCodeButton, 500);
+    window._bulkEditor = createSignatureEditor('#bulk-toolbar', '', { height: '280px' });
 
-    // Add template manager to bulk section
+    // Populate template dropdown above the editor
     loadTemplatesList();
 }
 
 async function loadTemplatesList() {
-    const r = await api('GET', '/gws/signature-templates');
-    window._loadedTemplates = r.templates || [];
-    const container = document.createElement('div');
-    container.className = 'p-4 border-t';
-    container.innerHTML = `
-        <h3 class="font-bold mb-2">Saved Templates</h3>
-        <div class="flex gap-2">
-            <select id="template-select" class="select select-bordered select-sm">
-                <option value="">Select a template...</option>
-                ${window._loadedTemplates.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}
-            </select>
-            <button class="btn btn-sm" onclick="applyTemplate()">Apply</button>
-            <button class="btn btn-sm btn-error btn-outline" title="Delete the selected template"
-                    onclick="deleteSelectedTemplate('template-select')">Delete</button>
-        </div>
-    `;
-    // Prevent duplicates
-    const existing = document.getElementById('template-manager-box');
-    if (existing) existing.remove();
-    container.id = 'template-manager-box';
-    $('section-sig-bulk').appendChild(container);
+    try {
+        const r = await api('GET', '/gws/signature-templates');
+        window._loadedTemplates = r.templates || [];
+        const sel = document.getElementById('template-select');
+        if (!sel) return;
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">Insert a saved template...</option>' +
+            window._loadedTemplates.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+        if (prev && window._loadedTemplates.some(t => t.id === prev)) {
+            sel.value = prev;
+        }
+    } catch (_) {}
 }
-function applyTemplate() {
-    var tid = document.getElementById('template-select')?.value;
+
+function onBulkTemplateChange() {
+    var sel = document.getElementById('template-select');
+    if (!sel) return;
+    var tid = sel.value;
     if (!tid || !window._loadedTemplates) return;
     var t = window._loadedTemplates.find(function(x) { return x.id === tid; });
-    if (t && window._bulkEditor) window._bulkEditor.setComponents(cleanHtmlString(t.html));
+    if (!t) return;
+    if (!window._bulkEditor) {
+        notify('The editor is still loading — try again in a moment', 'warning');
+        return;
+    }
+    var html = t.html || '';
+    if (!String(html).trim()) {
+        notify('That template is empty — add content to it first', 'warning');
+        return;
+    }
+    setEditorHtml(window._bulkEditor, cleanHtmlString(html));
+    notify('Loaded “' + t.name + '” into editor', 'info');
 }
+var applyTemplate = onBulkTemplateChange;
 
 async function executeBulkApply() {
     const recipients = window._bulkRecipients || [];
@@ -169,5 +132,7 @@ async function doSaveTemplate() {
         await api('POST', '/gws/signature-templates', { action: 'create', name: name, html: html });
         notify('Template saved', 'success');
         closeModal();
+        if (typeof loadTemplatesList === 'function') await loadTemplatesList();
+        if (typeof populateSigTemplates === 'function') await populateSigTemplates();
     } catch(e) { notify(e.message, 'error'); }
 }

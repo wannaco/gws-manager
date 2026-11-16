@@ -1,17 +1,19 @@
-<div id="page-login" class="min-h-screen flex items-center justify-center p-4">
-  <div class="card bg-base-100 shadow-xl w-full max-w-sm fade-in">
+<div id="page-login" class="min-h-screen flex items-center justify-center p-4 bg-base-200/60">
+  <div class="card bg-base-100 border border-base-300 shadow-lg w-full max-w-sm fade-in">
     <div class="card-body">
-      <h1 class="card-title text-2xl justify-center mb-2">GWS Admin</h1>
-
-      <!-- Tab switcher -->
-      <div class="tabs tabs-boxed justify-center mb-4">
-        <a id="tab-signin" class="tab tab-active" onclick="switchAuthTab('signin')">Sign In</a>
-        <a id="tab-register" class="tab" onclick="switchAuthTab('register')">Create Account</a>
+      <div class="flex flex-col items-center gap-2 mb-4">
+        <div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-primary-content shadow-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        </div>
+        <h1 class="text-xl font-bold tracking-tight" id="auth-heading">GWS Admin</h1>
+        <p class="text-xs text-base-content/60 text-center hidden" id="auth-setup-note">
+          First-time setup — create the initial administrator account. Public registration locks permanently afterwards.
+        </p>
       </div>
 
-      <div id="login-error" class="alert alert-error text-sm hidden"></div>
+      <div id="login-error" class="alert alert-error text-sm hidden mb-2"></div>
 
-      <!-- Sign In fields -->
+      <!-- Sign In fields (default when an account already exists) -->
       <div id="auth-signin-fields">
         <div class="form-control">
           <label class="label"><span class="label-text">Email</span></label>
@@ -26,11 +28,11 @@
         </div>
       </div>
 
-      <!-- Register fields (hidden by default) -->
+      <!-- One-time initial admin setup (shown ONLY on a fresh install) -->
       <div id="auth-register-fields" class="hidden">
         <div class="form-control">
-          <label class="label"><span class="label-text">Email</span></label>
-          <input id="reg-email" type="email" class="input input-bordered" placeholder="you@domain.com" autocomplete="email">
+          <label class="label"><span class="label-text">Admin Email</span></label>
+          <input id="reg-email" type="email" class="input input-bordered" placeholder="admin@domain.com" autocomplete="email">
         </div>
         <div class="form-control mt-2">
           <label class="label"><span class="label-text">Password</span></label>
@@ -41,7 +43,7 @@
           <input id="reg-password-confirm" type="password" class="input input-bordered" placeholder="Re-enter password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doRegister()">
         </div>
         <div class="card-actions mt-4">
-          <button id="btn-register" class="btn btn-primary w-full" onclick="doRegister()">Create Account</button>
+          <button id="btn-register" class="btn btn-primary w-full" onclick="doRegister()">Create Admin Account</button>
         </div>
       </div>
     </div>

@@ -4,6 +4,8 @@ Self-hosted Google Workspace administration panel — manage email signatures, d
 
 Runs on your own server or PC. Single-tenant by design: one instance = one Google Workspace domain.
 
+Built by **[ThinkCloud](https://thinkcloud.dev)** — IT consulting, Google Workspace optimization, workflow automation, and self-hosted infrastructure.
+
 ## Before you install: create your encryption key
 
 GWS Manager encrypts the Google **service-account key** before storing it in the
@@ -553,6 +555,14 @@ Reports are read, security first, but when that happens depends on spare time.
 **If you need something fixed by a date, that is a paid engagement** — the same
 commercial licensing that covers redistribution covers support. Use the contact
 in the Licence section below.
+
+## Built by ThinkCloud
+
+GWS Manager is maintained by **[ThinkCloud](https://thinkcloud.dev)**, an IT and automation consultancy helping growing teams (10–250+ users) streamline Google Workspace, AI workflows, and self-hosted infrastructure — working directly with engineers, with no sales layers.
+
+- **Google Workspace & Migrations:** Email and Drive migrations with permissions/metadata intact, Apps Script automations, and Workspace optimization
+- **Workflow Automation & AI:** Custom business automations, Gemini/AI integrations, and self-hosted deployments (**n8n**, **Chatwoot**, **Metabase**, **Open WebUI**)
+- **Commercial Licensing & Support:** Need managed deployment, custom integrations, or commercial redistribution licensing? Visit **[thinkcloud.dev](https://thinkcloud.dev)** or email **support@thinkcloud.dev**
 
 ## Credits
 

@@ -54,7 +54,9 @@ curl -fsSL https://raw.githubusercontent.com/wannaco/gws-manager/main/deploy.sh 
 bash deploy.sh
 ```
 
-`deploy.sh` lets you choose your mode (VPS with automatic HTTPS, behind an existing reverse proxy, or local-only), generates and displays `ENCRYPTION_KEY`, writes `.env`, downloads only the needed Compose/Caddy files if not in a repo checkout, and starts the container.
+`deploy.sh` lets you choose your mode (VPS with automatic HTTPS, behind an existing reverse proxy, or local-only), offers to install Docker / Docker Compose if missing, generates and displays `ENCRYPTION_KEY`, writes `.env`, downloads only the needed Compose/Caddy files if not in a repo checkout, and starts the container.
+
+**Requirements:** Docker + Docker Compose v2 (`docker-compose-plugin`).
 
 ### Manual Compose Setup
 

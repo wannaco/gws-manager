@@ -65,16 +65,61 @@ echo -e "${BOLD}GWS Manager — Deployment Wizard${NC}"
 echo "================================="
 echo ""
 
-command -v docker >/dev/null 2>&1 || fail "Docker is not installed. Install Docker first: https://docs.docker.com/get-docker/"
+if ! command -v docker >/dev/null 2>&1; then
+  warn "Docker is not installed."
+  if command -v curl >/dev/null 2>&1; then
+    INSTALL_DOCKER=$(prompt "Install Docker now using get.docker.com? (y/N)" "N")
+    if [[ "$INSTALL_DOCKER" =~ ^[Yy]$ ]]; then
+      curl -fsSL https://get.docker.com | sudo sh || fail "Docker installation failed."
+      ok "Docker installed"
+    else
+      fail "Install Docker first: https://docs.docker.com/get-docker/"
+    fi
+  else
+    fail "Docker is not installed. Install Docker first: https://docs.docker.com/get-docker/"
+  fi
+fi
+
+install_compose_plugin() {
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update && sudo apt-get install -y docker-compose-plugin
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y docker-compose-plugin
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y docker-compose-plugin
+  elif command -v apk >/dev/null 2>&1; then
+    sudo apk add --no-cache docker-cli-compose
+  elif command -v brew >/dev/null 2>&1; then
+    brew install docker-compose
+  else
+    return 1
+  fi
+}
+
 if docker compose version >/dev/null 2>&1; then
   COMPOSE=(docker compose)
 elif command -v docker-compose >/dev/null 2>&1; then
   COMPOSE=(docker-compose)
 else
-  fail "Docker Compose is not installed. Install the compose plugin and re-run."
+  warn "Docker Compose plugin is not installed."
+  INSTALL_COMPOSE=$(prompt "Install Docker Compose plugin now? (Y/n)" "Y")
+  if [[ "$INSTALL_COMPOSE" =~ ^[Yy]$ ]]; then
+    install_compose_plugin || fail "Could not install Docker Compose automatically. Install 'docker-compose-plugin' and re-run."
+    if docker compose version >/dev/null 2>&1; then
+      COMPOSE=(docker compose)
+      ok "Docker Compose installed"
+    elif command -v docker-compose >/dev/null 2>&1; then
+      COMPOSE=(docker-compose)
+      ok "Docker Compose installed"
+    else
+      fail "Docker Compose still not found after install."
+    fi
+  else
+    fail "Docker Compose is required. Install 'docker-compose-plugin' and re-run."
+  fi
 fi
 
-docker info >/dev/null 2>&1 || fail "Docker daemon is not running or current user lacks permission."
+docker info >/dev/null 2>&1 || fail "Docker daemon is not running or current user lacks permission (try adding user to 'docker' group or running with sudo)."
 
 # ── 2. Choose deployment mode ──
 echo "Select how you want to run GWS Manager:"
